@@ -16,8 +16,12 @@ The initial condition is a Gaussian and the boundary conditions are periodic.
 The final solution is identical to the initial data because the wave has
 crossed the domain exactly once.
 """
+alpha = [1./4.,0.,3./4.]
+betaa = [0.,0.,3./2.]
+cfl_desired = 0.2
+cfl_max = 0.25
 
-def setup(nx=100, kernel_language='Python', use_petsc=False, solver_type='classic', weno_order=5, 
+def setup(nx=100, kernel_language='Fortran', use_petsc=False, solver_type='sharpclaw', weno_order=5, lim_type=2,
         time_integrator='SSP104', outdir='./_output'):
     import numpy as np
     from clawpack import riemann
@@ -39,6 +43,14 @@ def setup(nx=100, kernel_language='Python', use_petsc=False, solver_type='classi
             solver = pyclaw.SharpClawSolver1D(riemann.advection_1D_py.advection_1D)
         solver.weno_order=weno_order
         solver.time_integrator=time_integrator
+        solver.lim_type=lim_type
+        if time_integrator == 'LMM' or time_integrator == 'SSPMS32':
+            solver.alpha = alpha
+            solver.beta = betaa
+            solver.cfl_desired = cfl_desired
+            solver.cfl_max = cfl_max
+            solver.dt_initial = 0.001
+            solver.dt_variable = False
     else: raise Exception('Unrecognized value of solver_type.')
 
     solver.kernel_language = kernel_language
@@ -101,4 +113,8 @@ def setplot(plotdata):
  
 if __name__=="__main__":
     from clawpack.pyclaw.util import run_app_from_main
-    output = run_app_from_main(setup,setplot)
+    claw = run_app_from_main(setup,setplot)
+
+    import numpy as np
+    qfinal=claw.frames[claw.num_output_times].state.get_q_global()
+    print np.linalg.norm(qfinal)

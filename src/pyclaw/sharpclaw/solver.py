@@ -323,7 +323,9 @@ class SharpClawSolver(Solver):
 
                 if self.step_index < num_steps:
                     # Using SSP104 for previous step values
-                    state.q = self.ssp104(state)
+                    #state.q = self.ssp104(state)
+                    deltaq = self.dq(state)
+                    state.q += deltaq
                     self._registers[-num_steps+self.step_index].q = state.q.copy()
                     self._registers[-num_steps+self.step_index].dq = self.dq(state)
                     self.step_index += 1
