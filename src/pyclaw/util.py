@@ -102,23 +102,26 @@ def gen_variants(application, verifier, kernel_languages=('Fortran',), **kwargs)
 
     All unrecognized keyword arguments are passed through to the application.
     """
-
-    arg_dicts = build_variant_arg_dicts(kernel_languages)
+    
+    arg_dicts = build_variant_arg_dicts(kwargs,kernel_languages)
 
     for test_kwargs in arg_dicts:
         test_kwargs.update(kwargs)
         yield (test_app, application, verifier, test_kwargs)
     return
 
-def build_variant_arg_dicts(kernel_languages=('Fortran',)):
+def build_variant_arg_dicts(kwargs,kernel_languages=('Fortran',)):
     import itertools
 
     # only test petsc4py if it is available
-    try:
-        import petsc4py
-        use_petsc_opts=(True,False)
-    except Exception as err:
-        use_petsc_opts = (False,)
+    if not 'use_petsc' in kwargs:
+        try:
+            import petsc4py
+            use_petsc_opts=(True,False)
+        except Exception as err:
+            use_petsc_opts = (False,)
+    else:
+        use_petsc_opts = (kwargs['use_petsc'],)
 
     opt_names = 'use_petsc','kernel_language'
     opt_product = itertools.product(use_petsc_opts,kernel_languages)

@@ -33,7 +33,7 @@ def test_1d_advection():
                                  solver_type='sharpclaw',time_integrator='SSP104', outdir=None)
 
     sharp_tests_lmm = gen_variants(advection_1d.setup, verify_expected(2.874936e-04),
-                                 kernel_languages=('Python','Fortran'),
+                                 kernel_languages=('Python','Fortran'), use_petsc=False, 
                                  solver_type='sharpclaw',time_integrator='SSPMS32', outdir=None)
 
     weno_tests = gen_variants(advection_1d.setup, verify_expected(7.489618e-06),

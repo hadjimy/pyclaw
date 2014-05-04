@@ -32,7 +32,7 @@ def test_2d_acoustics():
                                  time_integrator='SSP104', disable_output=True)
 
     sharp_tests_lmm   = gen_variants(acoustics_2d.setup, verify_data('verify_sharpclaw_lmm.txt'),
-                                 kernel_languages=('Fortran',), solver_type='sharpclaw', 
+                                 kernel_languages=('Fortran',), solver_type='sharpclaw', use_petsc=False,
                                  time_integrator='SSPMS32', disable_output=True)
 
     from itertools import chain
