@@ -9,6 +9,8 @@ Module containing SharpClaw solvers for PyClaw/PetClaw
 from clawpack.pyclaw.solver import Solver, CFLError
 from clawpack.pyclaw.util import add_parent_doc
 
+import numpy as np
+
 # Reconstructor
 try:
     # load c-based WENO reconstructor (PyWENO)
@@ -267,6 +269,8 @@ class SharpClawSolver(Solver):
 
             elif self.time_integrator=='SSP104':
                 state.q = self.ssp104(state)
+                #print np.linalg.norm(state.q)
+                #raw_input('')
 
 
             elif self.time_integrator=='RK':
@@ -287,6 +291,7 @@ class SharpClawSolver(Solver):
             elif self.time_integrator == 'SSPMS32':
                 # Store initial solution
                 if self.step_index == 1:
+                    #self._registers[-2].q = state.q.copy()
                     self._registers[-2].cfl = self.cfl_desired
                     self._registers[-1].q = state.q.copy()
                     self._registers[-1].cfl = self.cfl_desired
@@ -295,6 +300,13 @@ class SharpClawSolver(Solver):
                     # Using Euler method for previous step values
                     deltaq = self.dq(state)
                     state.q += deltaq
+                    print 'step %d:' % self.step_index
+                    print 'U^{%d} = %.15f' % (self.step_index -3, np.linalg.norm(self._registers[-3].q))
+                    print 'U^{%d} = %.15f' % (self.step_index -2, np.linalg.norm(self._registers[-2].q))
+                    print 'U^{%d} = %.15f' % (self.step_index -1, np.linalg.norm(self._registers[-1].q))
+                    print 
+                    print 'U^{%d} = %.15f' % (self.step_index, np.linalg.norm(state.q))
+                    raw_input('')
                     self.step_index += 1
                 else:
                     omega = (self._registers[-2].cfl + self._registers[-1].cfl)/self.cfl.get_cached_max()
@@ -303,8 +315,7 @@ class SharpClawSolver(Solver):
                     alpha = 1./omega**2
                     deltaq = self.dq(state)
                     state.q = r*beta*(state.q + 2*deltaq) + alpha*self._registers[-3].q
-                
-                # Update stored solutions
+                    # Update stored solutions
                 self._registers[-3].q = self._registers[-2].q
                 self._registers[-3].cfl = self._registers[-2].cfl
                 self._registers[-2].q = self._registers[-1].q
@@ -326,6 +337,13 @@ class SharpClawSolver(Solver):
                     #state.q = self.ssp104(state)
                     deltaq = self.dq(state)
                     state.q += deltaq
+                    print 'step %d:' % self.step_index
+                    print 'U^{%d} = %.15f' % (self.step_index -3, np.linalg.norm(self._registers[-3].q))
+                    print 'U^{%d} = %.15f' % (self.step_index -2, np.linalg.norm(self._registers[-2].q))
+                    print 'U^{%d} = %.15f' % (self.step_index -1, np.linalg.norm(self._registers[-1].q))
+                    print 
+                    print 'U^{%d} = %.15f' % (self.step_index, np.linalg.norm(state.q))
+                    raw_input('')
                     self._registers[-num_steps+self.step_index].q = state.q.copy()
                     self._registers[-num_steps+self.step_index].dq = self.dq(state)
                     self.step_index += 1

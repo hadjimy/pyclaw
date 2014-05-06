@@ -17,8 +17,11 @@ and :math:`\rho` is the density.
  
 import numpy as np
 
-def setup(kernel_language='Fortran',use_petsc=False,outdir='./_output',solver_type='classic',
-        time_integrator='SSP104', disable_output=False):
+alpha = [1./4.,0.,3./4.]
+beta = [0.,0.,3./2.]
+
+def setup(kernel_language='Fortran',use_petsc=True,outdir='./_output', solver_type='sharpclaw',
+        weno_order=5, lim_type=2, time_integrator='SSP104', disable_output=False):
     """
     Example python script for solving the 2d acoustics equations.
     """
@@ -39,12 +42,17 @@ def setup(kernel_language='Fortran',use_petsc=False,outdir='./_output',solver_ty
         if solver.time_integrator=='SSP104':
             solver.cfl_max = 0.5
             solver.cfl_desired = 0.45
-        elif solver.time_integrator=='SSPMS32':
+        elif solver.time_integrator=='SSPMS32' or time_integrator == 'LMM':
             solver.cfl_max = 0.2
-            solver.cfl_desired = 0.16
+            solver.cfl_desired = 0.1
         else:
             raise Exception('CFL desired and CFL max have not been provided for the particular time integrator.')
-
+        solver.weno_order=weno_order
+        solver.lim_type=lim_type
+        if time_integrator == 'LMM' or time_integrator == 'SSPMS32':
+            solver.alpha = alpha
+            solver.beta = beta
+            solver.dt_variable = False
     
     solver.limiters = pyclaw.limiters.tvd.MC
 
@@ -84,7 +92,7 @@ def setup(kernel_language='Fortran',use_petsc=False,outdir='./_output',solver_ty
     claw.outdir = outdir
 
     num_output_times = 10
-    
+
     claw.num_output_times = num_output_times
 
     claw.tfinal = 0.12
@@ -171,4 +179,10 @@ def setplot(plotdata):
 if __name__=="__main__":
     import sys
     from clawpack.pyclaw.util import run_app_from_main
-    output = run_app_from_main(setup,setplot)
+    claw = run_app_from_main(setup,setplot)
+
+    import numpy as np
+    qfinal=claw.solution.state.get_q_global()
+    test_pressure = qfinal[0,:,:]
+    print np.linalg.norm(test_pressure)
+

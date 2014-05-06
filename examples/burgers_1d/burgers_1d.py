@@ -16,8 +16,13 @@ model for fluid dynamics.
 The initial condition is sinusoidal, but after a short time a shock forms
 (due to the nonlinearity).
 """
+alpha = [1./4.,0.,3./4.]
+beta = [0.,0.,3./2.]
+cfl_desired = 0.2
+cfl_max = 0.25
 
-def setup(use_petsc=0,kernel_language='Fortran',outdir='./_output',solver_type='classic'):
+def setup(use_petsc=0,kernel_language='Fortran',outdir='./_output',solver_type='sharpclaw',
+        weno_order=5, lim_type=2, time_integrator='SSP104'):
     """
     Example python script for solving the 1d Burgers equation.
     """
@@ -38,6 +43,16 @@ def setup(use_petsc=0,kernel_language='Fortran',outdir='./_output',solver_type='
             solver = pyclaw.SharpClawSolver1D(riemann.burgers_1D_py.burgers_1D)
         elif kernel_language=='Fortran':
             solver = pyclaw.SharpClawSolver1D(riemann.burgers_1D)
+        solver.weno_order=weno_order
+        solver.time_integrator=time_integrator
+        solver.lim_type=lim_type
+        if time_integrator == 'LMM' or time_integrator == 'SSPMS32':
+            solver.alpha = alpha
+            solver.beta = beta
+            solver.cfl_desired = cfl_desired
+            solver.cfl_max = cfl_max
+            solver.dt_initial = 0.0001
+            solver.dt_variable = False
     else:
         if kernel_language=='Python': 
             solver = pyclaw.ClawSolver1D(riemann.burgers_1D_py.burgers_1D)
@@ -106,5 +121,8 @@ def setplot(plotdata):
 
 if __name__=="__main__":
     from clawpack.pyclaw.util import run_app_from_main
-    output = run_app_from_main(setup,setplot)
+    claw = run_app_from_main(setup,setplot)
 
+    import numpy as np
+    qfinal=claw.frames[claw.num_output_times].state.get_q_global()
+    print np.linalg.norm(qfinal)

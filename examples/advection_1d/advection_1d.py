@@ -49,7 +49,7 @@ def setup(nx=100, kernel_language='Fortran', use_petsc=False, solver_type='sharp
             solver.beta = betaa
             solver.cfl_desired = cfl_desired
             solver.cfl_max = cfl_max
-            solver.dt_initial = 0.001
+            solver.dt_initial = 0.0001
             solver.dt_variable = False
     else: raise Exception('Unrecognized value of solver_type.')
 
