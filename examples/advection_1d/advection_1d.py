@@ -22,7 +22,7 @@ cfl_desired = 0.2
 cfl_max = 0.25
 
 def setup(nx=100, kernel_language='Fortran', use_petsc=False, solver_type='sharpclaw', weno_order=5, lim_type=2,
-        time_integrator='SSP104', outdir='./_output'):
+        time_integrator='SSP104', outdir='./_output', print_sol=0):
     import numpy as np
     from clawpack import riemann
 
@@ -51,8 +51,11 @@ def setup(nx=100, kernel_language='Fortran', use_petsc=False, solver_type='sharp
             solver.cfl_max = cfl_max
             solver.dt_initial = 0.0001
             solver.dt_variable = False
+            solver.print_sol = print_sol
     else: raise Exception('Unrecognized value of solver_type.')
 
+    solver.logger.setLevel(5)
+    
     solver.kernel_language = kernel_language
 
     solver.bc_lower[0] = 2
@@ -79,7 +82,7 @@ def setup(nx=100, kernel_language='Fortran', use_petsc=False, solver_type='sharp
     else:
         claw.output_format = None
 
-    claw.tfinal =1.0
+    claw.tfinal = 0.2
     claw.setplot = setplot
 
     return claw

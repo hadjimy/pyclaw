@@ -172,7 +172,9 @@ class SharpClawSolver(Solver):
         self.step_index = 1
         self.alpha = None
         self.beta = None
-
+        self.step_no = None
+        self.print_sol = False
+        
         # Call general initialization function
         super(SharpClawSolver,self).__init__(riemann_solver,claw_package)
         
@@ -300,13 +302,14 @@ class SharpClawSolver(Solver):
                     # Using Euler method for previous step values
                     deltaq = self.dq(state)
                     state.q += deltaq
-                    print 'step %d:' % self.step_index
-                    print 'U^{%d} = %.15f' % (self.step_index -3, np.linalg.norm(self._registers[-3].q))
-                    print 'U^{%d} = %.15f' % (self.step_index -2, np.linalg.norm(self._registers[-2].q))
-                    print 'U^{%d} = %.15f' % (self.step_index -1, np.linalg.norm(self._registers[-1].q))
-                    print 
-                    print 'U^{%d} = %.15f' % (self.step_index, np.linalg.norm(state.q))
-                    raw_input('')
+                    if self.print_sol == True:
+                        print 'step %d:' % self.step_index
+                        print 'U^{%d} = %.15f' % (self.step_index -3, np.linalg.norm(self._registers[-3].q))
+                        print 'U^{%d} = %.15f' % (self.step_index -2, np.linalg.norm(self._registers[-2].q))
+                        print 'U^{%d} = %.15f' % (self.step_index -1, np.linalg.norm(self._registers[-1].q))
+                        print 
+                        print 'U^{%d} = %.15f' % (self.step_index, np.linalg.norm(state.q))
+                        raw_input('')
                     self.step_index += 1
                 else:
                     omega = (self._registers[-2].cfl + self._registers[-1].cfl)/self.cfl.get_cached_max()
@@ -315,7 +318,15 @@ class SharpClawSolver(Solver):
                     alpha = 1./omega**2
                     deltaq = self.dq(state)
                     state.q = r*beta*(state.q + 2*deltaq) + alpha*self._registers[-3].q
-                    # Update stored solutions
+                    if self.print_sol == True:
+                        print 'step %d:' % self.step_index
+                        print 'U^{%d} = %.15f' % (self.step_index -3, np.linalg.norm(self._registers[-3].q))
+                        print 'U^{%d} = %.15f' % (self.step_index -2, np.linalg.norm(self._registers[-2].q))
+                        print 'U^{%d} = %.15f' % (self.step_index -1, np.linalg.norm(self._registers[-1].q))
+                        print 
+                        print 'U^{%d} = %.15f' % (self.step_index, np.linalg.norm(state.q))
+                        raw_input('')
+                # Update stored solutions
                 self._registers[-3].q = self._registers[-2].q
                 self._registers[-3].cfl = self._registers[-2].cfl
                 self._registers[-2].q = self._registers[-1].q
@@ -332,31 +343,48 @@ class SharpClawSolver(Solver):
                     self._registers[-num_steps].q  = state.q.copy()
                     self._registers[-num_steps].dq = self.dq(state)
 
+                    self.step_no = num_steps
+
                 if self.step_index < num_steps:
                     # Using SSP104 for previous step values
                     #state.q = self.ssp104(state)
                     deltaq = self.dq(state)
                     state.q += deltaq
-                    print 'step %d:' % self.step_index
-                    print 'U^{%d} = %.15f' % (self.step_index -3, np.linalg.norm(self._registers[-3].q))
-                    print 'U^{%d} = %.15f' % (self.step_index -2, np.linalg.norm(self._registers[-2].q))
-                    print 'U^{%d} = %.15f' % (self.step_index -1, np.linalg.norm(self._registers[-1].q))
-                    print 
-                    print 'U^{%d} = %.15f' % (self.step_index, np.linalg.norm(state.q))
-                    raw_input('')
+                    if self.print_sol == True:
+                        print 'step %d:' % self.step_index
+                        print 'U^{%d} = %.15f' % (self.step_index -3,  
+                                np.linalg.norm(self._registers[-num_steps+self.step_index].q))
+                        print 'U^{%d} = %.15f' % (self.step_index -2, 
+                                np.linalg.norm(self._registers[-num_steps+self.step_index+1].q))
+                        print 'U^{%d} = %.15f' % (self.step_index -1, 
+                                np.linalg.norm(self._registers[-num_steps+self.step_index-1].q))
+                        print 
+                        print 'U^{%d} = %.15f' % (self.step_index, np.linalg.norm(state.q))
+                        raw_input('')
                     self._registers[-num_steps+self.step_index].q = state.q.copy()
                     self._registers[-num_steps+self.step_index].dq = self.dq(state)
                     self.step_index += 1
                 else:
+                    if self.print_sol == True:
+                        print 'step %d:' % self.step_no
+                        print 'U^{%d} = %.15f' % (self.step_no -3, np.linalg.norm(self._registers[-3].q))
+                        print 'U^{%d} = %.15f' % (self.step_no -2, np.linalg.norm(self._registers[-2].q))
+                        print 'U^{%d} = %.15f' % (self.step_no -1, np.linalg.norm(self._registers[-1].q))
                     # Update solution: alpha[-1] and beta[-1] correspond to solution at the previous step
                     state.q = self.alpha[-1]*self._registers[-1].q + self.beta[-1]*self._registers[-1].dq
                     for i in range(-num_steps,-1):
                         state.q += self.alpha[i]*self._registers[i].q + self.beta[i]*self._registers[i].dq
                         self._registers[i].q = self._registers[i+1].q.copy()
                         self._registers[i].dq = self._registers[i+1].dq.copy()
+                    if self.print_sol == True:
+                        print 
+                        print 'U^{%d} = %.15f' % (self.step_no, np.linalg.norm(state.q))
+                        raw_input('')
+
                     # Store current solution and function evaluation
                     self._registers[-1].q = state.q.copy()
                     self._registers[-1].dq = self.dq(state)
+                    self.step_no += 1
 
 
             else:
