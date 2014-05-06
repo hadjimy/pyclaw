@@ -18,8 +18,8 @@ The initial condition is sinusoidal, but after a short time a shock forms
 """
 alpha = [1./4.,0.,3./4.]
 beta = [0.,0.,3./2.]
-cfl_desired = 0.2
-cfl_max = 0.25
+cfl_desired = 0.15
+cfl_max = 0.2
 
 def setup(use_petsc=0,kernel_language='Fortran',outdir='./_output',solver_type='sharpclaw',
         weno_order=5, lim_type=2, time_integrator='SSP104'):

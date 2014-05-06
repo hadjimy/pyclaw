@@ -17,7 +17,12 @@ c = np.array([0., .3772689153313680, .7545378306627360, .7289856616121880, .6992
 
 b = np.array([.206734020864804, .206734020864804, .117097251841844, .181802560120140, .287632146308408])
 
-def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_type='sharpclaw',kernel_language='Fortran'):
+alpha = [1./4.,0.,3./4.]
+beta = [0.,0.,3./2.]
+cfl_desired = 0.15
+cfl_max = 0.2
+
+def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_type='sharpclaw',kernel_language='Fortran',weno_order=5, lim_type=2, time_integrator='SSP104'):
     """
     Solve the Euler equations of compressible fluid dynamics.
     This example involves a shock wave impacting a sinusoidal density field.
@@ -31,10 +36,22 @@ def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_t
 
     if solver_type=='sharpclaw':
         solver = pyclaw.SharpClawSolver1D(riemann.euler_with_efix_1D)
-        solver.time_integrator = 'RK'
-        solver.a, solver.b, solver.c = a, b, c
-        solver.cfl_desired = 0.6
-        solver.cfl_max = 0.7
+        solver.weno_order=weno_order
+        solver.time_integrator=time_integrator
+        solver.lim_type=lim_type
+        solver.char_decomp=1
+        if time_integrator == 'RK':
+            solver.a, solver.b, solver.c = a, b, c
+            solver.cfl_desired = 0.6
+            solver.cfl_max = 0.7
+        elif time_integrator == 'LMM' or time_integrator == 'SSPMS32':
+            solver.alpha = alpha
+            solver.beta = beta
+            solver.cfl_desired = cfl_desired
+            solver.cfl_max = cfl_max
+            solver.dt_initial = 0.0001
+            solver.dt_variable = False
+
     else:
         solver = pyclaw.ClawSolver1D(riemann.euler_with_efix_1D)
 
@@ -108,4 +125,10 @@ def setplot(plotdata):
 
 if __name__=="__main__":
     from clawpack.pyclaw.util import run_app_from_main
-    output = run_app_from_main(setup,setplot)
+    claw = run_app_from_main(setup,setplot)
+
+    import numpy as np
+    qfinal=claw.solution.state.get_q_global()
+    test_density = qfinal[0,:]
+    print np.linalg.norm(test_density)
+
