@@ -4,11 +4,13 @@ module reconstruct
 ! the heart of the SharpClaw solvers 
 ! ===================================================================
 
-    double precision, allocatable  :: dq1m(:)
+    double precision, allocatable  :: dq1m(:), p(:)
     double precision, allocatable, private :: uu(:,:),dq(:,:)
     double precision, allocatable, private :: uh(:,:,:),gg(:,:),hh(:,:),u(:,:,:)
-    double precision, allocatable, private :: evl(:,:,:),evr(:,:,:)
-    double precision, private  :: epweno = 1.e-36
+    double precision, allocatable, private  :: dw1m(:), w(:,:), norm(:), qq(:,:), wl(:,:), wr(:,:)
+    !double precision, allocatable, private :: qpriml(:,:), qprimr(:,:)
+    double precision, allocatable, private :: evl(:,:,:), evr(:,:,:)
+    double precision, private  :: epweno = 1.e-6
     logical :: recon_alloc = .False.
 
 ! ===================================================================
@@ -38,6 +40,18 @@ contains
                     allocate(dq(num_eqn,maxnx+2*num_ghost))
                     allocate(uu(2,maxnx+2*num_ghost))
                     allocate(hh(-2:2,maxnx+2*num_ghost))
+
+                    allocate( w(num_eqn,maxnx+2*num_ghost))
+                    allocate(qq(num_eqn,maxnx+2*num_ghost))
+                    !allocate(qpriml(num_eqn,maxnx+2*num_ghost))
+                    !allocate(qprimr(num_eqn,maxnx+2*num_ghost))
+                    allocate( dw1m(maxnx+2*num_ghost))
+                    allocate(norm(num_eqn))
+                    allocate(wr(num_eqn,maxnx+1))
+                    allocate(wl(num_eqn,maxnx+1))
+                    allocate( dq1m(maxnx+2*num_ghost))
+                    allocate( p(maxnx+2*num_ghost))
+
                 case(3) ! Storage for weno5_trans
                     allocate(dq(num_eqn,maxnx+2*num_ghost))
                     allocate(gg(num_eqn,maxnx+2*num_ghost))
@@ -47,7 +61,7 @@ contains
             end select
             case(3)
                 allocate(uu(2,maxnx+2*num_ghost))
-                allocate( dq1m(maxnx+2*num_ghost))
+                allocate(dq1m(maxnx+2*num_ghost))
         end select
         recon_alloc = .True.
 
@@ -76,6 +90,19 @@ contains
                     deallocate(dq)
                     deallocate(uu)
                     deallocate(hh)
+
+                    deallocate(w)
+                    deallocate(qq)
+                    !deallocate(qpriml)
+                    !deallocate(qprimr)
+                    deallocate(dw1m)
+                    deallocate(norm)
+                    deallocate(wl)
+                    deallocate(wr)
+
+                    deallocate(dq1m)
+                    deallocate(p)
+
                 case(3) ! Storage for weno5_trans
                     deallocate(dq)
                     deallocate(gg)
@@ -93,8 +120,8 @@ contains
     ! ===================================================================
     subroutine weno_comp(q,ql,qr,num_eqn,maxnx,num_ghost)
     ! ===================================================================
-    !   This is the main routine, which uses PyWENO-generated code
-    !   It does no characteristic decomposition
+    ! This is the main routine, which uses PyWENO-generated code
+    ! It does no characteristic decomposition
 
         use weno
         use clawparams, only: weno_order
@@ -130,7 +157,7 @@ contains
     ! ===================================================================
     subroutine weno5(q,ql,qr,num_eqn,maxnx,num_ghost)
     ! ===================================================================
-    !   This is an old routine based on Chi-Wang Shu's code
+    ! This is an old routine based on Chi-Wang Shu's code
 
         implicit double precision (a-h,o-z)
 
@@ -168,9 +195,449 @@ contains
                     t2=im*(dq1m(i+inone)-dq1m(i      ))
                     t3=im*(dq1m(i      )-dq1m(i+ione ))
   
-                    tt1=13.*t1**2+3.*(   dq1m(i+intwo)-3.*dq1m(i+inone))**2
-                    tt2=13.*t2**2+3.*(   dq1m(i+inone)+   dq1m(i      ))**2
-                    tt3=13.*t3**2+3.*(3.*dq1m(i      )-   dq1m(i+ione ))**2
+                    tt1=(13.*t1**2+3.*(   dq1m(i+intwo)-3.*dq1m(i+inone))**2)/12.
+                    tt2=(13.*t2**2+3.*(   dq1m(i+inone)+   dq1m(i      ))**2)/12.
+                    tt3=(13.*t3**2+3.*(3.*dq1m(i      )-   dq1m(i+ione ))**2)/12.
+
+                    tt1=(epweno+tt1)**2
+                    tt2=(epweno+tt2)**2
+                    tt3=(epweno+tt3)**2
+                    s1 =tt2*tt3
+                    s2 =6.*tt1*tt3
+                    s3 =3.*tt1*tt2
+                    t0 =1./(s1+s2+s3)
+                    s1 =s1*t0
+                    s3 =s3*t0
+
+                    uu(m1,i) = (s1*(t2-t1)+(0.5*s3-0.25)*(t3-t2))/3. &
+                            +(-q(m,i-2)+7.*(q(m,i-1)+q(m,i))-q(m,i+1))/12.
+
+                end do
+            end do
+
+           qr(m,num_ghost-1:mx2-num_ghost  )=uu(1,num_ghost:mx2-num_ghost+1)
+           ql(m,num_ghost  :mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
+
+        end do
+
+        write(*,*) uu(1,:)
+        read(*,*)
+
+
+        return
+    end subroutine weno5
+
+
+    ! ===================================================================
+    subroutine weno5_pressure(q,ql,qr,num_eqn,maxnx,num_ghost)
+    ! ===================================================================
+    ! Change to presure and perform compote-wise reconstruction  
+
+        implicit double precision (a-h,o-z)
+
+        double precision, intent(in) :: q(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: ql(num_eqn,maxnx+2*num_ghost),qr(num_eqn,maxnx+2*num_ghost)
+
+        integer :: num_eqn, mx2
+
+        mx2  = size(q,2); num_eqn = size(q,1)
+
+        !loop over all equations (all components).  
+        !the reconstruction is performed component-wise;
+        !no characteristic decomposition is used here
+
+        do m=1,2
+            forall (i=2:mx2)
+                ! compute and store the differences of the cell averages
+                dq1m(i)=q(m,i)-q(m,i-1)
+            end forall
+
+            ! the reconstruction
+
+            do m1=1,2
+
+                ! m1=1: construct ql
+                ! m1=2: construct qr
+
+                im=(-1)**(m1+1)
+                ione=im; inone=-im; intwo=-2*im
+  
+                do i=num_ghost,mx2-num_ghost+1
+  
+                    t1=im*(dq1m(i+intwo)-dq1m(i+inone))
+                    t2=im*(dq1m(i+inone)-dq1m(i      ))
+                    t3=im*(dq1m(i      )-dq1m(i+ione ))
+  
+                    tt1=(13.*t1**2+3.*(   dq1m(i+intwo)-3.*dq1m(i+inone))**2)/12.
+                    tt2=(13.*t2**2+3.*(   dq1m(i+inone)+   dq1m(i      ))**2)/12.
+                    tt3=(13.*t3**2+3.*(3.*dq1m(i      )-   dq1m(i+ione ))**2)/12.
+
+                    tt1=(epweno+tt1)**2
+                    tt2=(epweno+tt2)**2
+                    tt3=(epweno+tt3)**2
+                    s1 =tt2*tt3
+                    s2 =6.*tt1*tt3
+                    s3 =3.*tt1*tt2
+                    t0 =1./(s1+s2+s3)
+                    s1 =s1*t0
+                    s3 =s3*t0
+
+                    uu(m1,i) = (s1*(t2-t1)+(0.5*s3-0.25)*(t3-t2))/3. &
+                            +(-q(m,i-2)+7.*(q(m,i-1)+q(m,i))-q(m,i+1))/12.
+
+                end do
+            end do
+
+           qr(m,num_ghost-1:mx2-num_ghost  )=uu(1,num_ghost:mx2-num_ghost+1)
+           ql(m,num_ghost  :mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
+
+        end do
+
+        gamma1 = 0.4d0
+        ! Convert from energy to pressure
+        forall (i=2:mx2)
+            p(i) = gamma1 * (q(3,i)-0.5d0*q(2,i)**2 / q(1,i))
+        end forall
+
+        forall (i=2:mx2)
+            ! compute and store the differences of the cell averages
+            dq1m(i)=p(i)-p(i-1)
+        end forall
+
+        ! the reconstruction
+
+        do m1=1,2
+
+            ! m1=1: construct pl
+            ! m1=2: construct pr
+
+            im=(-1)**(m1+1)
+            ione=im; inone=-im; intwo=-2*im
+
+            do i=num_ghost,mx2-num_ghost+1
+
+                t1=im*(dq1m(i+intwo)-dq1m(i+inone))
+                t2=im*(dq1m(i+inone)-dq1m(i      ))
+                t3=im*(dq1m(i      )-dq1m(i+ione ))
+
+                tt1=(13.*t1**2+3.*(   dq1m(i+intwo)-3.*dq1m(i+inone))**2)/12.
+                tt2=(13.*t2**2+3.*(   dq1m(i+inone)+   dq1m(i      ))**2)/12.
+                tt3=(13.*t3**2+3.*(3.*dq1m(i      )-   dq1m(i+ione ))**2)/12.
+
+                tt1=(epweno+tt1)**2
+                tt2=(epweno+tt2)**2
+                tt3=(epweno+tt3)**2
+                s1 =tt2*tt3
+                s2 =6.*tt1*tt3
+                s3 =3.*tt1*tt2
+                t0 =1./(s1+s2+s3)
+                s1 =s1*t0
+                s3 =s3*t0
+
+                uu(m1,i) = (s1*(t2-t1)+(0.5*s3-0.25)*(t3-t2))/3. &
+                        +(-p(i-2)+7.*(p(i-1)+p(i))-p(i+1))/12.
+
+            end do
+        end do
+
+       qr(3,num_ghost-1:mx2-num_ghost  )=uu(1,num_ghost:mx2-num_ghost+1)
+       ql(3,num_ghost  :mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
+
+
+        ! Convert from pressure to energy
+        forall (i=2:mx2)
+            ql(3,i) = ql(3,i)/gamma1 + 0.5d0*ql(2,i)**2 / ql(1,i)
+            qr(3,i) = qr(3,i)/gamma1 + 0.5d0*qr(2,i)**2 / qr(1,i)
+        end forall
+
+        return
+    end subroutine weno5_pressure
+
+
+    ! ===================================================================
+    subroutine weno5_primitive(q,ql,qr,num_eqn,maxnx,num_ghost)
+    ! ===================================================================
+    ! The reconstruction is performed component-wise on primitive variables;
+    ! No characteristic decomposition is used here
+
+        implicit double precision (a-h,o-z)
+
+        integer,          intent(in) :: maxnx, num_eqn, num_ghost
+        double precision, intent(in) :: q(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: ql(num_eqn,maxnx+2*num_ghost),qr(num_eqn,maxnx+2*num_ghost)
+
+        double precision :: qpriml(num_eqn,maxnx+2*num_ghost),qprimr(num_eqn,maxnx+2*num_ghost)
+        integer :: mx2
+        common /cparam/ gamma1
+
+
+        mx2  = size(q,2)
+        !gamma1 = 0.4d0
+
+        ! change from conservative to primitive variables
+        forall (i=2:mx2)
+            qq(1,i) = q(1,i)
+            qq(2,i) = q(2,i)/q(1,i)
+            qq(3,i) = gamma1 * (q(3,i)-0.5d0*q(2,i)**2 / q(1,i))
+        end forall
+
+        do m=1,num_eqn
+
+            forall (i=2:mx2)
+                ! compute and store the differences of the cell averages
+                dq1m(i)=qq(m,i)-qq(m,i-1)
+            end forall
+
+            ! the reconstruction
+
+            do m1=1,2
+
+                ! m1=1: construct qpriml
+                ! m1=2: construct qprimr
+
+                im=(-1)**(m1+1)
+                ione=im; inone=-im; intwo=-2*im
+  
+                do i=num_ghost,mx2-num_ghost+1
+  
+                    t1=im*(dq1m(i+intwo)-dq1m(i+inone))
+                    t2=im*(dq1m(i+inone)-dq1m(i      ))
+                    t3=im*(dq1m(i      )-dq1m(i+ione ))
+  
+                    tt1=(13.*t1**2+3.*(   dq1m(i+intwo)-3.*dq1m(i+inone))**2)/12.
+                    tt2=(13.*t2**2+3.*(   dq1m(i+inone)+   dq1m(i      ))**2)/12.
+                    tt3=(13.*t3**2+3.*(3.*dq1m(i      )-   dq1m(i+ione ))**2)/12.
+
+                    tt1=(epweno+tt1)**2
+                    tt2=(epweno+tt2)**2
+                    tt3=(epweno+tt3)**2
+                    s1 =tt2*tt3
+                    s2 =6.*tt1*tt3
+                    s3 =3.*tt1*tt2
+                    t0 =1./(s1+s2+s3)
+                    s1 =s1*t0
+                    s3 =s3*t0
+
+                    uu(m1,i) = (s1*(t2-t1)+(0.5*s3-0.25)*(t3-t2))/3. &
+                            +(-qq(m,i-2)+7.*(qq(m,i-1)+qq(m,i))-qq(m,i+1))/12.
+
+                end do
+            end do
+
+           qprimr(m,num_ghost-1:mx2-num_ghost  )=uu(1,num_ghost:mx2-num_ghost+1)
+           qpriml(m,num_ghost  :mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
+
+        end do
+
+        ! change from primitive to conservative variables
+        forall (i=2:mx2)
+            ql(1,i) = qpriml(1,i)
+            qr(1,i) = qprimr(1,i)
+            ql(2,i) = qpriml(1,i)*qpriml(2,i)
+            qr(2,i) = qprimr(1,i)*qprimr(2,i)
+            ql(3,i) = qpriml(3,i)/gamma1 + 0.5d0*qpriml(1,i) * qpriml(2,i)**2
+            qr(3,i) = qprimr(3,i)/gamma1 + 0.5d0*qprimr(1,i) * qprimr(2,i)**2
+        end forall
+
+        !write(*,*) q(3,:)
+        !read(*,*)
+        !write(*,*) gamma1 * q(3,:)
+        !read(*,*)
+        !write(*,*) gamma1 * (q(3,:)-0.5d0*q(2,:)**2 / q(1,:))
+        !read(*,*)
+
+
+      return
+    end subroutine weno5_primitive
+
+
+    ! ===================================================================
+    subroutine weno5_char_primitive(q,ql,qr,num_eqn,maxnx,num_ghost,evl,evr)
+    ! ===================================================================
+    ! Characteristic decomposition over primitive variables
+
+        implicit double precision (a-h,o-z)
+
+        integer,          intent(in) :: maxnx, num_eqn, num_ghost
+        double precision, intent(in) :: q(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(in) :: evl(num_eqn,num_eqn,maxnx+2*num_ghost)
+        double precision, intent(in) :: evr(num_eqn,num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: ql(num_eqn,maxnx+2*num_ghost),qr(num_eqn,maxnx+2*num_ghost)
+
+        double precision :: qpriml(num_eqn,maxnx+2*num_ghost),qprimr(num_eqn,maxnx+2*num_ghost)
+        integer :: mx2
+        common /cparam/ gamma1
+
+        mx2  = size(q,2) 
+
+        ! change from conservative to primitive variables
+        forall (i=2:mx2)
+            qq(1,i) = q(1,i)
+            qq(2,i) = q(2,i)/q(1,i)
+            qq(3,i) = gamma1 * (q(3,i)-0.5d0*q(2,i)**2 / q(1,i))
+        end forall
+
+        ! loop over all equations (all components).
+        ! the reconstruction is performed using characteristic decomposition
+
+        forall(m=1:num_eqn,i=2:mx2)
+            ! compute and store the differences of the cell averages
+            dq(m,i)=qq(m,i)-qq(m,i-1)
+        end forall
+
+        forall(m=1:num_eqn,i=num_ghost:mx2-num_ghost+1)
+            ! Compute the part of the reconstruction that is
+            ! stencil-independent
+            qprimr(m,i-1) = (-qq(m,i-2)+7.*(qq(m,i-1)+qq(m,i))-qq(m,i+1))/12.
+            qpriml(m,i) = qprimr(m,i-1)
+        end forall
+
+        do ip=1,num_eqn
+
+            ! Project the difference of the cell averages to the
+            ! 'm'th characteristic field
+
+        
+            do m2 = -2,2
+               do i = num_ghost,mx2-2
+                  hh(m2,i) = 0.d0
+                  do m=1,num_eqn
+                    hh(m2,i) = hh(m2,i)+ evl(ip,m,i)*dq(m,i+m2)
+                  enddo
+               enddo
+            enddo
+
+            ! the reconstruction
+
+            do m1=1,2
+
+                ! m1=1: construct qpriml
+                ! m1=2: construct qprimr
+
+                im=(-1)**(m1+1)
+                ione=im
+                inone=-im
+                intwo=-2*im
+  
+                do i=num_ghost,mx2-num_ghost+1
+      
+                    t1=im*(hh(intwo,i)-hh(inone,i))
+                    t2=im*(hh(inone,i)-hh(0,i ))
+                    t3=im*(hh(0,i )-hh(ione,i ))
+      
+                    tt1=13.*t1**2+3.*( hh(intwo,i)-3.*hh(inone,i))**2
+                    tt2=13.*t2**2+3.*( hh(inone,i)+ hh(0,i ))**2
+                    tt3=13.*t3**2+3.*(3.*hh(0,i )- hh(ione,i ))**2
+
+                    tt1=(epweno+tt1)**2
+                    tt2=(epweno+tt2)**2
+                    tt3=(epweno+tt3)**2
+                    s1 =tt2*tt3
+                    s2 =6.*tt1*tt3
+                    s3 =3.*tt1*tt2
+                    t0 =1./(s1+s2+s3)
+                    s1 =s1*t0
+                    s3 =s3*t0
+                    
+                    uu(m1,i) = ( s1*(t2-t1) + (0.5*s3-0.25)*(t3-t2) ) /3.
+
+                end do !end loop over interfaces
+            end do !end loop over which side of interface
+
+            ! Project to the physical space:
+            do m = 1,num_eqn
+                do i=num_ghost,mx2-num_ghost+1
+                    qprimr(m,i-1) = qprimr(m,i-1) + evr(m,ip,i)*uu(1,i)
+                    qpriml(m,i )  = qpriml(m,i ) + evr(m,ip,i)*uu(2,i)
+                enddo
+            enddo
+        enddo !end loop over waves
+
+        ! change from primitive to conservative variables
+        forall (i=2:mx2)
+            ql(1,i) = qpriml(1,i)
+            qr(1,i) = qprimr(1,i)
+            ql(2,i) = qpriml(1,i)*qpriml(2,i)
+            qr(2,i) = qprimr(1,i)*qprimr(2,i)
+            ql(3,i) = qpriml(3,i)/gamma1 + 0.5d0*qpriml(1,i) * qpriml(2,i)**2
+            qr(3,i) = qprimr(3,i)/gamma1 + 0.5d0*qprimr(1,i) * qprimr(2,i)**2
+        end forall
+
+        !write(*,*) ql
+        !read(*,*)
+        !write(*,*) qr
+
+      return
+    end subroutine weno5_char_primitive
+
+
+    ! ===================================================================
+    subroutine weno5_char_cell_avg(q,ql,qr,maxnx,num_eqn,num_ghost,evl,evr)
+    ! ===================================================================
+    ! This is a routine that does projection on the characterstic space,
+    ! then performs WENO reconstruction and projects back to physical
+    ! space
+    ! evl, evr are matrices of left and right eigenvectors at each interface
+    !
+    ! NOTE that characteristic projections are computed over 
+    ! cell averages instead of differences of the cell averages.
+    ! This is not the correct way for characterstic-wise WENO and adds 
+    ! difussion to the problem (the correct is in weno5_char)
+
+        implicit double precision (a-h,o-z)
+
+        integer, intent(in) :: maxnx, num_eqn, num_ghost
+        double precision, intent(in) :: q(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: ql(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: qr(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: evl(num_eqn,num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: evr(num_eqn,num_eqn,maxnx+2*num_ghost)
+        integer :: mx2
+
+        mx2 = maxnx + 2*num_ghost
+
+        ! loop over all equations (all components).
+        ! the reconstruction is performed using characteristic decomposition
+        
+        do i = 1,mx2
+
+            ! Project the cell averages to the m'th characteristic field
+            
+            do ip=1,num_eqn
+                w(ip,i) = 0.d0
+                do m=1,num_eqn
+                    w(ip,i) = w(ip,i)+ evl(ip,m,i)*q(m,i)
+                enddo
+            enddo
+
+        enddo                            
+
+        do m=1,num_eqn
+
+            forall (i=2:mx2)
+                ! compute and store the differences of the characteristics
+                dw1m(i)=w(m,i)-w(m,i-1)
+            end forall
+
+            ! the reconstruction
+
+            do m1=1,2
+
+                ! m1=1: construct wl (wr(m,i-1))
+                ! m1=2: construct wr (wl(m,i))
+
+                im=(-1)**(m1+1)
+                ione=im; inone=-im; intwo=-2*im
+  
+                do i=num_ghost,mx2-num_ghost+1
+                
+                    t1=im*(dw1m(i+intwo)-dw1m(i+inone))
+                    t2=im*(dw1m(i+inone)-dw1m(i ))
+                    t3=im*(dw1m(i )-dw1m(i+ione ))
+  
+                    tt1=13.*t1**2+3.*( dw1m(i+intwo)-3.*dw1m(i+inone))**2
+                    tt2=13.*t2**2+3.*( dw1m(i+inone)+ dw1m(i ))**2
+                    tt3=13.*t3**2+3.*(3.*dw1m(i )- dw1m(i+ione ))**2
        
                     tt1=(epweno+tt1)**2
                     tt2=(epweno+tt2)**2
@@ -183,42 +650,51 @@ contains
                     s3 =s3*t0
   
                     uu(m1,i) = (s1*(t2-t1)+(0.5*s3-0.25)*(t3-t2))/3. &
-                             +(-q(m,i-2)+7.*(q(m,i-1)+q(m,i))-q(m,i+1))/12.
+                             +(-w(m,i-2)+7.*(w(m,i-1)+w(m,i))-w(m,i+1))/12.
 
                 end do
             end do
 
-           qr(m,num_ghost-1:mx2-num_ghost  )=uu(1,num_ghost:mx2-num_ghost+1)
-           ql(m,num_ghost  :mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
+            wr(m,num_ghost-1:mx2-num_ghost )=uu(1,num_ghost:mx2-num_ghost+1)
+            wl(m,num_ghost :mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
 
         end do
 
-      return
-      end subroutine weno5
+        do i=num_ghost,mx2-num_ghost+1
+            do ip = 1,num_eqn
+                qr(ip,i-1) = 0.d0
+                ql(ip,i ) = 0.d0
+                do m = 1,num_eqn
+                    qr(ip,i-1) = qr(ip,i-1) + evr(ip,m,i-1)*wr(m,i-1)
+                    ql(ip,i ) = ql(ip,i ) + evr(ip,m,i)*wl(m,i)
+                enddo
+            enddo
+        enddo
+
+        return
+    end subroutine weno5_char_cell_avg
 
 
     ! ===================================================================
     subroutine weno5_char(q,ql,qr,maxnx,num_eqn,num_ghost,evl,evr)
     ! ===================================================================
-    !   This is an old routine based on Chi-Wang Shu's code
-
-        ! This one uses characteristic decomposition
-        !  evl, evr are left and right eigenvectors at each interface
+    ! This one uses characteristic decomposition
+    ! evl, evr are left and right eigenvectors at each interface
 
         implicit double precision (a-h,o-z)
 
         integer,          intent(in) :: maxnx, num_eqn, num_ghost
         double precision, intent(in) :: q(num_eqn,maxnx+2*num_ghost)
-        double precision, intent(out) :: ql(num_eqn,maxnx+2*num_ghost)
-        double precision, intent(out) :: qr(num_eqn,maxnx+2*num_ghost)
         double precision, intent(in) :: evl(num_eqn,num_eqn,maxnx+2*num_ghost)
         double precision, intent(in) :: evr(num_eqn,num_eqn,maxnx+2*num_ghost)
-
+        double precision, intent(out) :: ql(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: qr(num_eqn,maxnx+2*num_ghost)
+        
         integer :: mx2
+        
+        mx2 = size(q,2)
 
-        mx2  = size(q,2)
-
-        ! loop over all equations (all components).  
+        ! loop over all equations (all components).
         ! the reconstruction is performed using characteristic decomposition
 
         forall(m=1:num_eqn,i=2:mx2)
@@ -230,7 +706,7 @@ contains
             ! Compute the part of the reconstruction that is
             ! stencil-independent
             qr(m,i-1) = (-q(m,i-2)+7.*(q(m,i-1)+q(m,i))-q(m,i+1))/12.
-            ql(m,i)   = qr(m,i-1)
+            ql(m,i) = qr(m,i-1)
         end forall
 
         do ip=1,num_eqn
@@ -240,10 +716,10 @@ contains
 
         
             do m2 = -2,2
-               do  i = num_ghost+1,mx2-2
+               do i = num_ghost,mx2-2
                   hh(m2,i) = 0.d0
-                  do m=1,num_eqn 
-                    hh(m2,i) = hh(m2,i) + evl(ip,m,i)*dq(m,i+m2)
+                  do m=1,num_eqn
+                    hh(m2,i) = hh(m2,i)+ evl(ip,m,i)*dq(m,i+m2)
                   enddo
                enddo
             enddo
@@ -264,12 +740,12 @@ contains
                 do i=num_ghost,mx2-num_ghost+1
       
                     t1=im*(hh(intwo,i)-hh(inone,i))
-                    t2=im*(hh(inone,i)-hh(0,i    ))
-                    t3=im*(hh(0,i    )-hh(ione,i ))
+                    t2=im*(hh(inone,i)-hh(0,i ))
+                    t3=im*(hh(0,i )-hh(ione,i ))
       
-                    tt1=13.*t1**2+3.*(   hh(intwo,i)-3.*hh(inone,i))**2
-                    tt2=13.*t2**2+3.*(   hh(inone,i)+   hh(0,i    ))**2
-                    tt3=13.*t3**2+3.*(3.*hh(0,i    )-   hh(ione,i ))**2
+                    tt1=13.*t1**2+3.*( hh(intwo,i)-3.*hh(inone,i))**2
+                    tt2=13.*t2**2+3.*( hh(inone,i)+ hh(0,i ))**2
+                    tt3=13.*t3**2+3.*(3.*hh(0,i )- hh(ione,i ))**2
 
                     tt1=(epweno+tt1)**2
                     tt2=(epweno+tt2)**2
@@ -280,23 +756,153 @@ contains
                     t0 =1./(s1+s2+s3)
                     s1 =s1*t0
                     s3 =s3*t0
-      
-                    uu(m1,i) = ( s1*(t2-t1) + (0.5*s3-0.25)*(t3-t2) )/3.
+                    
+                    uu(m1,i) = ( s1*(t2-t1) + (0.5*s3-0.25)*(t3-t2) ) /3.
 
                 end do !end loop over interfaces
             end do !end loop over which side of interface
 
-                ! Project to the physical space:
+            ! Project to the physical space:
             do m = 1,num_eqn
                 do i=num_ghost,mx2-num_ghost+1
                     qr(m,i-1) = qr(m,i-1) + evr(m,ip,i)*uu(1,i)
-                    ql(m,i  ) = ql(m,i  ) + evr(m,ip,i)*uu(2,i)
+                    ql(m,i ) = ql(m,i ) + evr(m,ip,i)*uu(2,i)
                 enddo
             enddo
         enddo !end loop over waves
 
       return
-      end subroutine weno5_char
+    end subroutine weno5_char
+
+
+    ! ===================================================================
+    subroutine weno5_char_clean(q,ql,qr,maxnx,num_eqn,num_ghost,evl,evr)
+    ! ===================================================================
+
+        ! This one uses characteristic decomposition
+        ! evl, evr are left and right eigenvectors at each interface
+
+        implicit double precision (a-h,o-z)
+
+        integer,          intent(in) :: maxnx, num_eqn, num_ghost
+        double precision, intent(in) :: q(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: ql(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(out) :: qr(num_eqn,maxnx+2*num_ghost)
+        double precision, intent(in) :: evl(num_eqn,num_eqn,maxnx+2*num_ghost)
+        double precision, intent(in) :: evr(num_eqn,num_eqn,maxnx+2*num_ghost)
+        
+        integer :: mx2
+        
+        mx2 = size(q,2)
+
+        ! loop over all equations (all components).
+        ! the reconstruction is performed using characteristic decomposition
+
+        forall(m=1:num_eqn,i=2:mx2)
+            ! compute and store the differences of the cell averages
+            dq(m,i)=q(m,i)-q(m,i-1)
+        end forall
+
+        forall(m=1:num_eqn,i=num_ghost:mx2-num_ghost+1)
+            ! Compute the part of the reconstruction that is
+            ! stencil-independent
+            qr(m,i) = q(m,i)
+            ql(m,i) = q(m,i)
+        end forall
+
+        do ip=1,num_eqn
+
+            ! Project the difference of the cell averages to the
+            ! 'm'th characteristic field
+            do m2 = -2,2
+               do i = num_ghost,mx2-2
+                  hh(m2,i) = 0.d0
+                  do m=1,num_eqn
+                    hh(m2,i) = hh(m2,i)+ evl(ip,m,i)*dq(m,i+m2)
+                  enddo
+               enddo
+            enddo
+
+
+            ! the reconstruction
+            ! note that we use the projections onto the interface i-1/2
+            ! for construction of ql(i) and qr(i-1)
+
+            do i=num_ghost,mx2-num_ghost+1
+
+                ! ql(i)
+                ! Compute the smoothness measures
+                beta1 = 13.d0/12.d0 * ( -hh(-1,i) +      hh(0,i) )**2 &
+                         + 0.25d0 *   ( -hh(-1,i) + 3.d0*hh(0,i) )**2
+                beta2 = 13.d0/12.d0 * (  hh( 1,i) -      hh(0,i) )**2 &
+                         + 0.25d0 *   (  hh( 1,i) +      hh(0,i) )**2
+                beta3 = 13.d0/12.d0 * (  hh( 2,i) -      hh(1,i) )**2 &
+                         + 0.25d0 *   ( -hh( 2,i) + 3.d0*hh(1,i) )**2
+
+                ! Compute the weights
+                wt1 = 0.3d0 / (epweno+beta1)**2
+                wt2 = 0.6d0 / (epweno+beta2)**2
+                wt3 = 0.1d0 / (epweno+beta3)**2
+
+                ! Normalize the weights
+                wsum = wt1 + wt2 + wt3
+                w1 = wt1 / wsum
+                w2 = wt2 / wsum
+                w3 = wt3 / wsum
+
+                ! Compute the small polynomial deltas
+                u1d = -4.d0/6.d0 * hh(0,i) + 1.d0/6.d0 * hh(-1,i)
+                u2d = -1.d0/6.d0 * hh(1,i) - 2.d0/6.d0 * hh( 0,i)
+                u3d =  2.d0/6.d0 * hh(2,i) - 5.d0/6.d0 * hh( 1,i)
+
+                ! The weighted total delta
+                utd = w1*u1d + w2*u2d + w3*u3d
+
+                ! Add the increment from this eigencomponent
+                do m = 1,num_eqn
+                    ql(m,i ) = ql(m,i ) + evr(m,ip,i)*utd
+                enddo
+
+                ! qr(i-1)
+                ! Compute the smoothness measures
+                beta1 = 13.d0/12.d0 * ( -hh(-2,i) +      hh(-1,i) )**2 &
+                         + 0.25d0   * ( -hh(-2,i) + 3.d0*hh(-1,i) )**2
+                beta2 = 13.d0/12.d0 * (  hh( 0,i) -      hh(-1,i) )**2 &
+                         + 0.25d0   * (  hh( 0,i) +      hh(-1,i) )**2
+                beta3 = 13.d0/12.d0 * (  hh( 1,i) -      hh( 0,i) )**2 &
+                         + 0.25d0   * ( -hh( 1,i) + 3.d0*hh( 0,i) )**2
+
+                ! Compute the weights
+                wt1 = 0.1d0 / (epweno+beta1)**2
+                wt2 = 0.6d0 / (epweno+beta2)**2
+                wt3 = 0.3d0 / (epweno+beta3)**2
+
+                ! Normalize the weights
+                wsum = wt1 + wt2 + wt3
+                w1 = wt1 / wsum
+                w2 = wt2 / wsum
+                w3 = wt3 / wsum
+
+                ! Compute the small polynomial deltas
+                u1d =  5.d0/6.d0 * hh(-1,i) - 2.d0/6.d0 * hh(-2,i)
+                u2d =  1.d0/6.d0 * hh(-1,i) + 2.d0/6.d0 * hh( 0,i)
+                u3d =  4.d0/6.d0 * hh( 0,i) - 1.d0/6.d0 * hh( 1,i)
+
+                ! The weighted total delta
+                utd = w1*u1d + w2*u2d + w3*u3d
+
+                ! Add the increment from this eigencomponent
+                do m = 1,num_eqn
+                    qr(m,i-1) = qr(m,i-1) + evr(m,ip,i)*utd
+                enddo
+
+            enddo !end loop over grid
+
+        enddo !end loop over characteristic fields
+
+      return
+    end subroutine weno5_char_clean
+
 
     ! ===================================================================
     subroutine weno5_trans(q,ql,qr,evl,evr)
@@ -332,7 +938,7 @@ contains
             do i = 2,mx2
                 gg(mw,i) = 0.d0
                 do m=1,num_eqn
-                    gg(mw,i) = gg(mw,i) + evl(mw,m,i)*dq(m,i)
+                    gg(mw,i) = gg(mw,i)+ evl(mw,m,i)*dq(m,i)
                 enddo
             enddo
         enddo
@@ -346,7 +952,7 @@ contains
                     hh(m1,i) = 0.d0
                     do m=1,num_eqn 
                         hh(m1,i) = hh(m1,i)+evl(mw,m,i)* &
-                                    gg(mw,i+m1)*evr(mw,m,i+m1)
+                                    gg(i+m1,mw)*evr(mw,m,i+m1)
                     enddo
                 enddo
             enddo
@@ -493,7 +1099,7 @@ contains
     !
     !  Fifth order WENO reconstruction, based on f-waves
     !  that are interpreted as slopes.
-!
+    !
 
       implicit double precision (a-h,o-z)
 
@@ -544,7 +1150,7 @@ contains
               theta2 = theta2 + fwave(m,mw,i+inone)*fwave(m,mw,i)
               theta3 = theta3 + fwave(m,mw,i+ione )*fwave(m,mw,i)
             enddo
-!
+
              t1=im*(theta1-theta2)
              t2=im*(theta2-wnorm2)
              t3=im*(wnorm2-theta3)
@@ -588,15 +1194,15 @@ contains
 
         implicit double precision (a-h,o-z)
 
-        integer,          intent(in) :: num_eqn 
+        integer, intent(in) :: num_eqn
         double precision, intent(in) :: q(:,:)
         integer, intent(in) :: mthlim(:)
         double precision, intent(out) :: ql(:,:),qr(:,:)
         integer :: mx2
 
-        mx2  = size(q,2)
+        mx2 = size(q,2)
 
-        ! loop over all equations (all components).  
+        ! loop over all equations (all components).
         ! the reconstruction is performed component-wise
 
         do m=1,num_eqn
@@ -639,7 +1245,7 @@ contains
       enddo
 
       return
-      end subroutine tvd2
+    end subroutine tvd2
 
 
     ! ===================================================================
@@ -649,19 +1255,19 @@ contains
         ! Second order TVD reconstruction for WENOCLAW
         ! This one uses characteristic decomposition
 
-        !  evl, evr are left and right eigenvectors at each interface
+        ! evl, evr are left and right eigenvectors at each interface
         implicit double precision (a-h,o-z)
 
-        integer,          intent(in) :: num_eqn, num_ghost        
+        integer, intent(in) :: num_eqn, num_ghost
         double precision, intent(in) :: q(:,:)
         integer, intent(in) :: mthlim(:)
         double precision, intent(out) :: ql(:,:),qr(:,:)
         double precision, intent(in) :: evl(:,:,:),evr(:,:,:)
         integer :: mx2
 
-        mx2  = size(q,2)
+        mx2 = size(q,2)
 
-        ! loop over all equations (all components).  
+        ! loop over all equations (all components).
         ! the reconstruction is performed using characteristic decomposition
 
         ! compute and store the differences of the cell averages
@@ -674,7 +1280,7 @@ contains
             ! Project the difference of the cell averages to the
             ! 'm'th characteristic field
             do m1 = -1,1
-                do  i = num_ghost+1,mx2-1
+                do i = num_ghost+1,mx2-1
                     hh(m1,i) = 0.d0
                     do mm=1,num_eqn
                         hh(m1,i) = hh(m1,i)+ evl(m,mm,i)*dq(mm,i+m1)
@@ -697,7 +1303,7 @@ contains
                     else
                         r=0.d0
                     endif
-               
+                   
                     select case(mthlim(m))
                     case(1)
                         ! minmod
@@ -721,21 +1327,21 @@ contains
                         amax = dmax1(-alpha*r,0.d0,dmin1(beta*r,pp,xgamma))
                         slimitr = dmax1(0.d0, dmin1(pp,amax))
                     end select
-    
-                     u(m,m1,i) = im*0.5d0*slimitr*hh(m1-2,i)
+
+                    u(m,m1,i) = im*0.5d0*slimitr*hh(m1-2,i)
 
                 enddo
             enddo
         enddo
 
         ! Project to the physical space:
-        do m =  1, num_eqn
+        do m = 1, num_eqn
             do i = num_ghost+1,mx2-1
                 qr(m,i-1)=q(m,i-1)
-                ql(m,i  )=q(m,i  )
-                do mm=1,num_eqn 
+                ql(m,i )=q(m,i )
+                do mm=1,num_eqn
                     qr(m,i-1) = qr(m,i-1) + evr(m,mm,i)*u(mm,1,i)
-                    ql(m,i  ) = ql(m,i  ) + evr(m,mm,i)*u(mm,2,i)
+                    ql(m,i ) = ql(m,i ) + evr(m,mm,i)*u(mm,2,i)
                 enddo
             enddo
         enddo
@@ -748,21 +1354,21 @@ contains
         ! This one uses projected waves
 
         implicit double precision (a-h,o-z)
-        integer,          intent(in) :: num_eqn, num_ghost        
+        integer, intent(in) :: num_eqn, num_ghost
         double precision, intent(in) :: q(:,:)
         integer, intent(in) :: mthlim(:)
         double precision, intent(out) :: ql(:,:),qr(:,:)
         double precision, intent(in) :: wave(:,:,:), s(:,:)
         integer :: mx2, num_waves
 
-        mx2  = size(q,2); num_waves=size(wave,2)
+        mx2 = size(q,2); num_waves=size(wave,2)
 
         forall(i=2:mx2,m=1:num_eqn)
             qr(m,i-1) = q(m,i-1)
-            ql(m,i  ) = q(m,i  )
+            ql(m,i ) = q(m,i )
         end forall
 
-        ! loop over all equations (all components).  
+        ! loop over all equations (all components).
         ! the reconstruction is performed using characteristic decomposition
 
         do mw=1,num_waves
@@ -777,7 +1383,6 @@ contains
                 enddo
                 if (i.eq.0) cycle
                 if (wnorm2.eq.0.d0) cycle
-                
                 if (s(mw,i).gt.0.d0) then
                     r = dotl / wnorm2
                 else
@@ -810,9 +1415,9 @@ contains
 
                 uu(mw,i) = 0.5d0*wlimitr
 
-                do m =  1, num_eqn
+                do m = 1, num_eqn
                     qr(m,i-1) = qr(m,i-1) + wave(m,mw,i)*uu(mw,i)
-                    ql(m,i  ) = ql(m,i  ) - wave(m,mw,i)*uu(mw,i)
+                    ql(m,i ) = ql(m,i ) - wave(m,mw,i)*uu(mw,i)
                 enddo ! end loop over equations
 
             enddo

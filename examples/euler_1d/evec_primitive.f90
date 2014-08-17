@@ -1,5 +1,5 @@
 ! ==============================================================
-subroutine evec(char_proj,maxnx,num_eqn,num_ghost,mx,q,auxl,auxr,evl,evr)
+subroutine evec_primitive(char_proj,maxnx,num_eqn,num_ghost,mx,q,auxl,auxr,evl,evr)
 ! ==============================================================
 !
 !	Calculation of left and right eigenvectors
@@ -24,7 +24,6 @@ subroutine evec(char_proj,maxnx,num_eqn,num_ghost,mx,q,auxl,auxr,evl,evr)
 !   ---------------
     common /cparam/ gamma1
     integer :: mx2
-    double precision :: pro(3,3)
 
     mx2 = size(q,2);
 
@@ -34,7 +33,7 @@ subroutine evec(char_proj,maxnx,num_eqn,num_ghost,mx,q,auxl,auxr,evl,evr)
     ! 2: Roe mean of cell averages
 
     do 20 i=2,mx2
-        ! Compute velocity, speed and enthalpy:
+        ! Compute speed and density:
         select case(char_proj)
             case(0)
                 u = q(2,i) / q(1,i)
@@ -42,6 +41,7 @@ subroutine evec(char_proj,maxnx,num_eqn,num_ghost,mx,q,auxl,auxr,evl,evr)
                 enth = (q(3,i)+p) / q(1,i)
                 c2 = gamma1*(enth - .5d0*u**2)
                 c = dsqrt(c2)
+                rho = (gamma1 + 1.d0)*p / c2
             case(1)
                 ul = q(2,i-1) / q(1,i-1)
                 ur = q(2,i) / q(1,i)
@@ -52,6 +52,8 @@ subroutine evec(char_proj,maxnx,num_eqn,num_ghost,mx,q,auxl,auxr,evl,evr)
                 enthr = (q(3,i)+pr) / q(1,i)
                 c2 = .5d0*gamma1*((enthl - .5d0*ul**2) + (enthr - .5d0*ur**2))
                 c = dsqrt(c2)
+                p = .5d0*(pl + pr)
+                rho = (gamma1 + 1.d0)*p / c2
             case(2)
                 rhsqrtl = dsqrt(q(1,i-1))
                 rhsqrtr = dsqrt(q(1,i  ))
@@ -62,77 +64,62 @@ subroutine evec(char_proj,maxnx,num_eqn,num_ghost,mx,q,auxl,auxr,evl,evr)
                 enth = (((q(3,i-1)+pl)/rhsqrtl + (q(3,i)+pr)/rhsqrtr)) / rhsq2
                 c2 = gamma1*(enth - .5d0*u**2)
                 c = dsqrt(c2)
+                p = (rhsqrtl*pl + rhsqrtr*pr) / rhsq2
+                rho = (gamma1 + 1.d0)*p / c2
             case default
-                write(*,*) 'ERROR: Unrecognized characteristic projection option'
-                write(*,*) "You should set 0 <= char_proj <= 2."
+                    write(*,*) "Error: 0 <= char_proj <= 2."
         end select
 
 
         ! Construct matrix of right eigenvectors
-        !      _                     _ 
-        !     |                       |
-        !     |   1      1       1    |
-        !     |                       |
-        ! R = |  u-c     u      u+c   |
-        !     |                       |
-        !     |  H-uc   u^2/2   H+uc  |
-        !     |_                     _|
+        !      _                    _ 
+        !     |                      |
+        !     |  -rho/c   1   rho/c  |
+        !     |                      |
+        ! R = |     1     0     1    |
+        !     |                      |
+        !     |  -rho*c   0   rho*c  |
+        !     |_                    _|
 
-        evr(1,1,i) = 1.d0 
-        evr(2,1,i) = u - c
-        evr(3,1,i) = enth - u*c
+        evr(1,1,i) = -rho/c 
+        evr(2,1,i) = 1.d0
+        evr(3,1,i) = -rho*c
 
         evr(1,2,i) = 1.d0 
-        evr(2,2,i) = u 
-        evr(3,2,i) = 0.5d0*u**2
+        evr(2,2,i) = 0.d0 
+        evr(3,2,i) = 0.d0
 
-        evr(1,3,i) = 1.d0 
-        evr(2,3,i) = u + c
-        evr(3,3,i) = enth + u*c
+        evr(1,3,i) = rho/c  
+        evr(2,3,i) = 1.d0
+        evr(3,3,i) = rho*c 
 
         ! Construct matrix of left eigenvectors
-        !
-        ! gamma1 = gamma - 1
-        !                          _                                       _ 
-        !                         |                                         |
-        !                         |  uc/gamma1+u^2/2    -c/gamma1-u     1   |
-        !                         |                                         |
-        ! R^{-1} =  gamma1/(2c^2) |  2(H-u^2)           2u             -2   |
-        !                         |                                         |
-        !                         |  -uc/gamma1+u^2/2   c/gamma1-u      1   |
-        !                         |_                                       _|
+        !            _                         _ 
+        !           |                           |
+        !           |  0    1/2     -1/(2rho*c) |
+        !           |                           |
+        ! R^{-1} =  |  1     0        -1/c^2    |
+        !           |                           |
+        !           |  0    1/2     1/(2rho*c)  |
+        !           |_                         _|
 
-        alpha = 0.5d0 * gamma1 / c**2
+        evl(1,1,i) = 0.d0
+        evl(2,1,i) = 1.d0
+        evl(3,1,i) = 0.d0
 
-        evl(1,1,i) = (c*u/gamma1 + 0.5d0*u**2) * alpha
-        evl(2,1,i) = 2.d0*(enth-u**2) * alpha
-        evl(3,1,i) = (-c*u/gamma1 + 0.5d0*u**2) * alpha
+        evl(1,2,i) = 0.5d0
+        evl(2,2,i) = 0.d0
+        evl(3,2,i) = 0.5d0
 
-        evl(1,2,i) = -(c/gamma1 + u) * alpha
-        evl(2,2,i) = 2.d0*u * alpha
-        evl(3,2,i) = (c/gamma1 - u) * alpha
-
-        evl(1,3,i) = alpha
-        evl(2,3,i) = -2.d0 * alpha
-        evl(3,3,i) = alpha
-
-        do m=1,3
-            do n=1,3
-            pro(m,n)=0.d0
-                do k=1,3
-                    pro(m,n) = pro(m,n) + evl(m,k,i)*evr(k,n,i)
-                enddo
-            enddo
-        enddo
-
-        write(*,*) pro
-        read(*,*)
-
+        evl(1,3,i) = -1.d0/(2.d0*rho*c)
+        evl(2,3,i) = -1.d0/c**2
+        evl(3,3,i) = 1.d0/(2.d0*rho*c)        
 
     20 enddo
 
     return
-end subroutine evec
+end subroutine evec_primitive
+
 
 
 

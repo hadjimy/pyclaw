@@ -81,7 +81,7 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
                 call tvd2_wave(q1d,ql,qr,wave,s,mthlim,num_eqn,num_ghost)
             case(2)
                 ! characteristic-wise second order reconstruction
-                call evec(mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
+                call evec(char_proj,mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
                 call tvd2_char(q1d,ql,qr,mthlim,num_eqn,num_ghost,evl,evr)
         end select
         case(2) ! lim_type = 2: High-order WENO reconstruction
@@ -97,16 +97,38 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
                             q1d,q1d,aux,aux,wave,s,amdq,apdq)
                 endif
 
-                if (fwave.eqv. .True.) then
+                if (fwave .eqv. .True.) then
                     call weno5_fwave(q1d,ql,qr,wave,s)
                 else
                     call weno5_wave(q1d,ql,qr,wave)
                 endif
             case (2) ! characteristic-wise reconstruction
-                call evec(mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
-                call weno5_char(q1d,ql,qr,maxnx,num_eqn,num_ghost,evl,evr)
+                select case (char_decomp_type)
+                    case (0) ! no characteristic decomposition                  
+                        call weno5(q1d,ql,qr,num_eqn,maxnx,num_ghost)
+                    case (1) ! no characteristic decomposition, component-wise reconstruction for pressure 
+                        call weno5_pressure(q1d,ql,qr,num_eqn,maxnx,num_ghost)
+                    case (2) ! no characteristic decomposition, reconstruction over primitive variables
+                        call weno5_primitive(q1d,ql,qr,num_eqn,maxnx,num_ghost)
+                    case (3) ! characteristic decomposition over primitive variables
+                        call evec_primitive(char_proj,mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
+                        call weno5_char_primitive(q1d,ql,qr,num_eqn,maxnx,num_ghost,evl,evr)
+                    case (4) ! characteristic decomposition over cell averages
+                        call evec(char_proj,mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
+                        call weno5_char_cell_avg(q1d,ql,qr,maxnx,num_eqn,num_ghost,evl,evr)
+                    case (5) ! (default) characteristic decomposition over difference of the cell averages
+                        call evec(char_proj,mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
+                        call weno5_char(q1d,ql,qr,maxnx,num_eqn,num_ghost,evl,evr)
+                    case (6) ! characteristic decomposition over difference of the cell averages
+                             ! expanded version
+                        call evec(char_proj,mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
+                        call weno5_char_clean(q1d,ql,qr,maxnx,num_eqn,num_ghost,evl,evr)
+                    case default
+                        write(*,*) 'ERROR: Unrecognized characteristic decomposition type option'
+                        write(*,*) "You should set 0 <= char_decomp_type <= 4."
+                end select
             case (3) ! transmission-based reconstruction
-                call evec(mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
+                call evec(char_proj,mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
                 call weno5_trans(q1d,ql,qr,evl,evr)
             case default
                 write(*,*) 'ERROR: Unrecognized characteristic decomposition option'

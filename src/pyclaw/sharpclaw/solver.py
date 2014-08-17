@@ -160,6 +160,8 @@ class SharpClawSolver(Solver):
         self.weno_order = 5
         self.time_integrator = 'SSP104'
         self.char_decomp = 0
+        self.char_decomp_type = 3
+        self.char_proj = 2
         self.tfluct_solver = False
         self.aux_time_dep = False
         self.kernel_language = 'Fortran'
@@ -489,13 +491,15 @@ class SharpClawSolver(Solver):
 
         """
         grid = state.grid
-        clawparams.num_dim       = grid.num_dim
-        clawparams.lim_type      = self.lim_type
-        clawparams.weno_order    = self.weno_order
-        clawparams.char_decomp   = self.char_decomp
-        clawparams.tfluct_solver = self.tfluct_solver
-        clawparams.fwave         = self.fwave
-        clawparams.index_capa         = state.index_capa+1
+        clawparams.num_dim          = grid.num_dim
+        clawparams.lim_type         = self.lim_type
+        clawparams.weno_order       = self.weno_order
+        clawparams.char_decomp      = self.char_decomp
+        clawparams.tfluct_solver    = self.tfluct_solver
+        clawparams.char_decomp_type = self.char_decomp_type
+        clawparams.char_proj  = self.char_proj
+        clawparams.fwave            = self.fwave
+        clawparams.index_capa       = state.index_capa+1
 
         clawparams.num_waves     = self.num_waves
         clawparams.alloc_clawparams()

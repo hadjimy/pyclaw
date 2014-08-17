@@ -46,7 +46,8 @@ except ImportError:
 gamma = 1.4 # Ratio of specific heats
 gamma1 = gamma - 1.
 
-def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_language='Fortran'):
+def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_language='Fortran',
+        char_decomp_type=3,char_proj=2):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -66,9 +67,34 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_lang
         try:
             import sharpclaw1
             solver.fmod = sharpclaw1
-            solver.tfluct_solver = True
-            solver.lim_type = 1     # TVD reconstruction 
-            solver.char_decomp = 2  # characteristic-wise reconstructiong
+            solver.tfluct_solver = False
+            solver.lim_type = 2         # WENO reconstruction
+            solver.char_decomp = 2      # characteristic-wise reconstruction
+
+            # type of characteristic decomposition
+            # default = 3
+            #   0: (weno5) component-wise (no characteristic decomposition)
+            #   1. (weno5_pressure) component-wise reconstruction over pressure 
+            #                       (no characteristic decomposition)
+            #   2. (weno5_primitive) component-wise reconstruction over primitive variables
+            #                       (no characteristic decomposition)
+            #   3. (weno5_char_primitive) characteristic decomposition over primitive variables
+            #   4. (weno5_char_cell_avg) characteristic decomposition over cell averages
+            #   5. (weno5_char) characteristic decomposition over differences of the cell averages
+            #                  (Chi-Wang Shu's compact code)
+            #   6. (weno5_char_clean) characteristic decomposition over differences of the cell averages
+            #                         (expanded reconstruction)
+            solver.char_decomp_type = char_decomp_type
+
+            # type of characteristic projection used in evec.f90
+            # for the left and right e-vector matrices
+            # (activated when characteristic decomposition is used)
+            # default = 2 
+            #   0: computed at cell averages
+            #   1: arithmetic mean of cell averages
+            #   2: Roe mean of cell averages
+            solver.char_proj = char_proj
+
         except ImportError:
             pass
     elif solver_type=='classic':
