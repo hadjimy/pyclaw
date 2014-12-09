@@ -451,7 +451,7 @@ class SharpClawSolver(Solver):
         elif self.time_integrator == 'LMM':
             import copy
             s1 = copy.deepcopy(state)
-            s1.set_num_ghost(self.num_ghost)
+            s1.set_num_ghost(self.num_ghost) ### depreciated by deepcopy fix ###
             s2 = copy.deepcopy(s1)
 
         deltaq=self.dq(state)
