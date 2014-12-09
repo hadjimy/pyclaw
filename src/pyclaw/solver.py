@@ -162,6 +162,7 @@ class Solver(object):
         self.fmod = None
         self._is_set_up = False
         self._use_old_bc_sig = False
+        self.tv_check = True
 
         # select package to build solver objects from, by default this will be
         # the package that contains the module implementing the derived class
@@ -505,6 +506,10 @@ class Solver(object):
     def get_cfl_max(self):
         return self.cfl_max
 
+    def _tv_norm(self,q):
+        sol = np.append(q,q[0])
+        return sum(abs(np.diff(sol)))
+
     def evolve_to_time(self,solution,tend=None):
         r"""
         Evolve solution from solution.t to tend.  If tend is not specified,
@@ -569,6 +574,8 @@ class Solver(object):
                 told = solution.t
                 if self.time_integrator[:-2] == 'SSPMS':
                     step_index_old = self.step_index
+                    s = len(self._registers)
+                    tv_norm_prev_steps = max([self._tv_norm(self._registers[-1-i].q[0,:]) for i in range(s)])
             
             self.step(solution)
 
@@ -592,6 +599,19 @@ class Solver(object):
                 # Increment number of time steps completed
                 num_steps += 1
                 self.status['numsteps'] += 1
+
+                # check tvd-norm for 1D problems
+                if self.tv_check == True and self.num_eqn == 1:
+                    q_current = state.q.copy('F')
+                    if self._tv_norm(q_current[0,:]) - tv_norm_prev_steps > 1.e-15:
+                    #if self._tv_norm(q_current[0,:]) - self._tv_norm(q_backup[0,:]) > 1.e-15:
+                        print 'time = ', solution.t
+                        print 'step = ', self.status['numsteps']
+                        print 'old tv-norm = ', self._tv_norm(q_backup[0,:])
+                        print 'new tv-norm = ', self._tv_norm(state.q[0,:])
+                        print 'difference = ', self._tv_norm(q_current[0,:]) - self._tv_norm(q_backup[0,:])
+                        raw_input('')
+                        print
                 
             else:
                 # Reject this step
