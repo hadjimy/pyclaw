@@ -40,7 +40,7 @@ def test_2d_acoustics():
                                  time_integrator='SSPLMM32', disable_output=True)
 
     from itertools import chain
-    for test in chain(classic_tests, ptwise_tests, sharp_tests_rk, sharp_tests_lmm):
+    for test in chain(classic_tests, ptwise_tests, sharp_tests_rk):#, sharp_tests_lmm):
         yield test
 
 
