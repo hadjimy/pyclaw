@@ -45,8 +45,8 @@ def setup(kernel_language='Fortran', use_petsc=False, outdir='./_output',
             solver.cfl_desired = 0.45
         elif solver.time_integrator=='SSPLMM32':
             solver.lim_type = 1
-            solver.cfl_max = 0.25
-            solver.cfl_desired = 0.24
+            solver.cfl_max = 0.2
+            solver.cfl_desired = 0.15
         else:
             raise Exception('CFL desired and CFL max have not been provided for the particular time integrator.')
     
