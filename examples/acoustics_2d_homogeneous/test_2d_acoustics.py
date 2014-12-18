@@ -16,8 +16,7 @@ def test_2d_acoustics():
                 test_pressure = test_q[0,:,:]
                 thisdir = os.path.dirname(__file__)
                 expected_pressure = np.loadtxt(os.path.join(thisdir,data_filename))
-                return check_diff(expected_pressure, test_pressure, reltol=1e-3, 
-                                    delta=claw.solution.grid.delta)
+                return check_diff(expected_pressure, test_pressure, reltol=1e-3)
             else:
                 return
         return verify
@@ -40,7 +39,7 @@ def test_2d_acoustics():
                                  time_integrator='SSPLMM32', disable_output=True)
 
     from itertools import chain
-    for test in chain(classic_tests, ptwise_tests, sharp_tests_rk):#, sharp_tests_lmm):
+    for test in chain(classic_tests, ptwise_tests, sharp_tests_rk, sharp_tests_lmm):
         yield test
 
 
