@@ -19,7 +19,7 @@ import numpy as np
 
 def setup(kernel_language='Fortran', use_petsc=False, outdir='./_output', 
               solver_type='classic', time_integrator='SSP104', ptwise=False,
-              disable_output=False):
+              disable_output=False,lim_type=2):
     """
     Example python script for solving the 2d acoustics equations.
     """
@@ -41,7 +41,7 @@ def setup(kernel_language='Fortran', use_petsc=False, outdir='./_output',
         solver=pyclaw.SharpClawSolver2D(riemann.acoustics_2D)
         solver.time_integrator=time_integrator
         if solver.time_integrator=='SSP104':
-            solver.lim_type = 1
+            solver.lim_type = lim_type
             solver.cfl_max = 0.5
             solver.cfl_desired = 0.45
         elif solver.time_integrator=='SSPMS32':
