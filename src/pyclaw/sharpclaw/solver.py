@@ -273,6 +273,9 @@ class SharpClawSolver(Solver):
                 deltaq=self.dq(state)
                 state.q+=deltaq
 
+            elif self.time_integrator=='SSP22':
+                state.q = self.ssp22(state)
+
             elif self.time_integrator=='SSP33':
                 deltaq=self.dq(state)
                 self._registers[0].q=state.q+deltaq
@@ -415,24 +418,38 @@ class SharpClawSolver(Solver):
             return False
 
 
+    def ssp22(self,state):
+        if self.time_integrator == 'SSP22':
+            s1 = self._registers[0]
+        elif self.time_integrator == 'SSPLMM43':
+            import copy
+            s1 = copy.deepcopy(state)
+
+        s1.q = state.q + self.dq(state)
+        s1.t = state.t + self.dt
+
+        if self.call_before_step_each_stage:
+            self.before_step(self,s1)
+        state.q = 0.5*(state.q + self._registers[0].q + self.dq(s1))
+
+        return state.q
+
+
     def ssp104(self,state):
         if self.time_integrator == 'SSP104':
-            s1=self._registers[0]
-            s1.q = state.q.copy()
+            s1 = self._registers[0]
         elif self.time_integrator == 'LMM':
             import copy
             s1 = copy.deepcopy(state)
 
-        deltaq=self.dq(state)
-        s1.q = state.q + deltaq/6.
+        s1.q = state.q + self.dq(state)/6.
         s1.t = state.t + self.dt/6.
 
         for i in xrange(4):
             if self.call_before_step_each_stage:
                 self.before_step(self,s1)
-            deltaq=self.dq(s1)
-            s1.q=s1.q + deltaq/6.
-            s1.t =s1.t + self.dt/6.
+            s1.q = s1.q + self.dq(s1)/6.
+            s1.t = s1.t + self.dt/6.
 
         state.q = state.q/25. + 9./25 * s1.q
         s1.q = 15. * state.q - 5. * s1.q
@@ -441,15 +458,14 @@ class SharpClawSolver(Solver):
         for i in xrange(4):
             if self.call_before_step_each_stage:
                 self.before_step(self,s1)
-            deltaq=self.dq(s1)
-            s1.q=s1.q + deltaq/6.
-            s1.t =s1.t + self.dt/6.
+            s1.q = s1.q + self.dq(s1)/6.
+            s1.t = s1.t + self.dt/6.
 
         if self.call_before_step_each_stage:
             self.before_step(self,s1)
-        deltaq = self.dq(s1)
+        state.q += 0.6 * s1.q + 0.1 * self.dq(s1)
  
-        return state.q + 0.6 * s1.q + 0.1 * deltaq
+        return state.q
 
 
     def _set_mthlim(self):
