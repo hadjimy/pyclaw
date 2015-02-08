@@ -25,7 +25,7 @@ def before_step(solver,solution):
     """
     pass
 
-def default_tfluct():
+def default_tfluct(self):
     r"""This is a dummy routine and should never be called, check Euler1D
         to learn how to pass tfluct functions to the sharpclaw solver
     """
@@ -418,12 +418,10 @@ class SharpClawSolver(Solver):
     def ssp104(self,state):
         if self.time_integrator == 'SSP104':
             s1=self._registers[0]
-            s2=self._registers[1]
             s1.q = state.q.copy()
         elif self.time_integrator == 'LMM':
             import copy
             s1 = copy.deepcopy(state)
-            s2 = copy.deepcopy(s1)
 
         deltaq=self.dq(state)
         s1.q = state.q + deltaq/6.
@@ -436,8 +434,8 @@ class SharpClawSolver(Solver):
             s1.q=s1.q + deltaq/6.
             s1.t =s1.t + self.dt/6.
 
-        s2.q = state.q/25. + 9./25 * s1.q
-        s1.q = 15. * s2.q - 5. * s1.q
+        state.q = state.q/25. + 9./25 * s1.q
+        s1.q = 15. * state.q - 5. * s1.q
         s1.t = state.t + self.dt/3.
 
         for i in xrange(4):
@@ -451,7 +449,7 @@ class SharpClawSolver(Solver):
             self.before_step(self,s1)
         deltaq = self.dq(s1)
  
-        return s2.q + 0.6 * s1.q + 0.1 * deltaq
+        return state.q + 0.6 * s1.q + 0.1 * deltaq
 
 
     def _set_mthlim(self):
@@ -541,7 +539,7 @@ class SharpClawSolver(Solver):
         # equal to the number of registers of the LMM
         if self.time_integrator   == 'Euler':   nregisters=0
         elif self.time_integrator == 'SSP33':   nregisters=1
-        elif self.time_integrator == 'SSP104':  nregisters=2
+        elif self.time_integrator == 'SSP104':  nregisters=1
         elif self.time_integrator == 'RK':      nregisters=len(self.b)+1
         elif self.time_integrator == 'SSPMS32': nregisters=3
         elif self.time_integrator == 'SSPMS43': nregisters=4
@@ -553,7 +551,6 @@ class SharpClawSolver(Solver):
         
         state = solution.states[0]
         # use the same class constructor as the solution for the Runge Kutta stages
-        State = type(state)
         self._registers = []
         for i in xrange(nregisters):
             import copy
