@@ -142,6 +142,7 @@ class SharpClawSolver(Solver):
        }
 
     _cfl_default = {
+        'DWSSP22':  [0.24,0.25],
         'SSP104':   [2.45, 2.5],
         'SSPLMM32': [0.24, 0.25],
         'SSPLMM43': [0.15, 1./6.],
@@ -174,7 +175,9 @@ class SharpClawSolver(Solver):
         self._method = None
         self._registers = None
         self.dq_dt = None
-        self.dt_old = None        
+        self.dwdq_dt = None
+        self.dt_old = None
+        self.downwind = None
 
         # Used only if time integrator is 'RK'
         self.a = None
@@ -289,6 +292,7 @@ class SharpClawSolver(Solver):
         if self.accept_step == True:
             self.cfl.set_global_max(0.)
             self.dq_dt = self.dq(state) / self.dt
+            self.dwdq_dt = self.downind_dqdt(state) / self.dt
 
         if 'LMM' in self.time_integrator:
             step_index = self.update_saved_values(state,step_index)
@@ -306,6 +310,15 @@ class SharpClawSolver(Solver):
 
         elif self.time_integrator == 'SSP22':
             self.ssp22(state)
+
+        elif self.time_integrator == 'DWSSP22':
+            dw_euler_step = state.q - self.dt*self.dwdq_dt
+            self._registers[0].q = 5./6.*(state.q + self.dt*self.dq_dt) + 1./6.*dw_euler_step
+            self._registers[0].t = state.t + 2./3.*self.dt
+
+            if self.call_before_step_each_stage:
+                self.before_step(self,self._registers[0])
+            state.q = 0.75*(self._registers[0].q + self.dq(self._registers[0])) + 0.25*dw_euler_step
 
         elif self.time_integrator == 'SSP33':
             self._registers[0].q = state.q + self.dt*self.dq_dt
@@ -525,10 +538,25 @@ class SharpClawSolver(Solver):
         Evaluate dq/dt * (delta t)
         """
 
+        self.downwind = 0
         deltaq = self.dq_hyperbolic(state)
 
         if self.dq_src is not None:
             deltaq+=self.dq_src(self,state,self.dt)
+
+        return deltaq
+
+
+    def downind_dqdt(self,state):
+        """
+        Evaluate dq/dt.  This routine is used by methods with downwinding.
+        """
+
+        self.downwind = 1
+        deltaq = self.dq_hyperbolic(state)
+
+        if self.dq_src is not None:
+            deltaq += self.dq_src(self,state,self.dt)
 
         return deltaq
 
@@ -593,6 +621,8 @@ class SharpClawSolver(Solver):
         # Generally the number of registers for the starting method should be at most 
         # equal to the number of registers of the LMM
         if self.time_integrator   == 'Euler':   nregisters=0
+        elif self.time_integrator == 'DWSSP22':   nregisters=1
+        elif self.time_integrator == 'SSP22':   nregisters=1
         elif self.time_integrator == 'SSP33':   nregisters=1
         elif self.time_integrator == 'SSP104':  nregisters=1
         elif self.time_integrator == 'RK':      nregisters=len(self.b)+1
@@ -788,6 +818,8 @@ class SharpClawSolver1D(SharpClawSolver):
             q_l=qr[:,:-1]
             q_r=ql[:,1: ]
             wave,s,amdq,apdq = self.rp(q_l,q_r,aux_l,aux_r,state.problem_data)
+            if self.downwind:
+                amdq,apdq = apdq,amdq
 
             # Loop limits for local portion of grid
             # THIS WON'T WORK IN PARALLEL!
@@ -803,6 +835,8 @@ class SharpClawSolver1D(SharpClawSolver):
 
             #Find total fluctuation within each cell
             wave,s,amdq2,apdq2 = self.rp(ql,qr,aux,aux,state.problem_data)
+            if self.downwind:
+                amdq2,apdq2 = apdq2,amdq2
 
             # Compute dq
             for m in xrange(state.num_eqn):
