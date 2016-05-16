@@ -177,7 +177,6 @@ class SharpClawSolver(Solver):
         self.dq_dt = None
         self.dwdq_dt = None
         self.dt_old = None
-        self.downwind = None
 
         # Used only if time integrator is 'RK'
         self.a = None
@@ -292,7 +291,8 @@ class SharpClawSolver(Solver):
         if self.accept_step == True:
             self.cfl.set_global_max(0.)
             self.dq_dt = self.dq(state) / self.dt
-            self.dwdq_dt = self.downind_dqdt(state) / self.dt
+            if 'DW' in self.time_integrator:
+                self.dwdq_dt = self.dq(state,downwind=True) / self.dt
 
         if 'LMM' in self.time_integrator:
             step_index = self.update_saved_values(state,step_index)
@@ -533,13 +533,12 @@ class SharpClawSolver(Solver):
             raise Exception('Length of solver.limiters is not equal to 1 or to solver.num_waves')
 
        
-    def dq(self,state):
+    def dq(self,state,downwind=False):
         """
         Evaluate dq/dt * (delta t)
         """
 
-        self.downwind = 0
-        deltaq = self.dq_hyperbolic(state)
+        deltaq = self.dq_hyperbolic(state,downwind)
 
         if self.dq_src is not None:
             deltaq+=self.dq_src(self,state,self.dt)
@@ -547,21 +546,7 @@ class SharpClawSolver(Solver):
         return deltaq
 
 
-    def downind_dqdt(self,state):
-        """
-        Evaluate dq/dt.  This routine is used by methods with downwinding.
-        """
-
-        self.downwind = 1
-        deltaq = self.dq_hyperbolic(state)
-
-        if self.dq_src is not None:
-            deltaq += self.dq_src(self,state,self.dt)
-
-        return deltaq
-
-
-    def dq_hyperbolic(self,state):
+    def dq_hyperbolic(self,state,downwind):
         raise NotImplementedError('You must subclass SharpClawSolver.')
 
          
@@ -728,7 +713,7 @@ class SharpClawSolver1D(SharpClawSolver):
         super(SharpClawSolver1D,self).__init__(riemann_solver,claw_package)
 
 
-    def dq_hyperbolic(self,state):
+    def dq_hyperbolic(self,state,downwind):
         r"""
         Compute dq/dt * (delta t) for the hyperbolic hyperbolic system.
 
@@ -775,7 +760,7 @@ class SharpClawSolver1D(SharpClawSolver):
             else:
                 tfluct1 = self.tfluct
 
-            dq,cfl=self.fmod.flux1(q,self.auxbc,self.dt,state.t,ixy,mx,self.num_ghost,mx,rp1,tfluct1)
+            dq,cfl=self.fmod.flux1(q,self.auxbc,self.dt,state.t,ixy,mx,self.num_ghost,mx,rp1,tfluct1,downwind)
 
         elif self.kernel_language=='Python':
 
@@ -818,7 +803,7 @@ class SharpClawSolver1D(SharpClawSolver):
             q_l=qr[:,:-1]
             q_r=ql[:,1: ]
             wave,s,amdq,apdq = self.rp(q_l,q_r,aux_l,aux_r,state.problem_data)
-            if self.downwind:
+            if downwind:
                 amdq,apdq = apdq,amdq
 
             # Loop limits for local portion of grid
@@ -835,7 +820,7 @@ class SharpClawSolver1D(SharpClawSolver):
 
             #Find total fluctuation within each cell
             wave,s,amdq2,apdq2 = self.rp(ql,qr,aux,aux,state.problem_data)
-            if self.downwind:
+            if downwind:
                 amdq2,apdq2 = apdq2,amdq2
 
             # Compute dq
@@ -870,7 +855,7 @@ class SharpClawSolver2D(SharpClawSolver):
         super(SharpClawSolver2D,self).__init__(riemann_solver,claw_package)
 
 
-    def dq_hyperbolic(self,state):
+    def dq_hyperbolic(self,state,downwind):
         """Compute dq/dt * (delta t) for the hyperbolic hyperbolic system
 
         Note that the capa array, if present, should be located in the aux
@@ -915,7 +900,7 @@ class SharpClawSolver2D(SharpClawSolver):
             else:
                 tfluct2 = self.tfluct
 
-            dq,cfl=self.fmod.flux2(q,self.auxbc,self.dt,state.t,num_ghost,maxm,mx,my,rpn2,tfluct2)
+            dq,cfl=self.fmod.flux2(q,self.auxbc,self.dt,state.t,num_ghost,maxm,mx,my,rpn2,tfluct2,downwind)
 
         else: raise Exception('Only Fortran kernels are supported in 2D.')
 
@@ -954,7 +939,7 @@ class SharpClawSolver3D(SharpClawSolver):
             del self.fmod
 
 
-    def dq_hyperbolic(self,state):
+    def dq_hyperbolic(self,state,downwind):
         """Compute dq/dt * (delta t) for the hyperbolic hyperbolic system
 
         Note that the capa array, if present, should be located in the aux
@@ -1000,7 +985,7 @@ class SharpClawSolver3D(SharpClawSolver):
             else:
                 tfluct3 = self.tfluct
 
-            dq,cfl=self.fmod.flux3(q,self.auxbc,self.dt,state.t,num_ghost,maxm,mx,my,mz,rpn3,tfluct3)
+            dq,cfl=self.fmod.flux3(q,self.auxbc,self.dt,state.t,num_ghost,maxm,mx,my,mz,rpn3,tfluct3,downwind)
 
         else: raise Exception('Only Fortran kernels are supported in 3D.')
 
