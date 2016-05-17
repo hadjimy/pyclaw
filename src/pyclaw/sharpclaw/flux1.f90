@@ -51,7 +51,7 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
 
     ! Local variables
     double precision, pointer :: auxl(:,:), auxr(:,:), qr_shift(:,:), ql_shift(:,:)
-    double precision, pointer :: p_amdq(:,:), p_apdq(:,:), p_amdq2(:,:), p_apdq2(:,:)
+    double precision, pointer :: p_amdq(:,:), p_apdq(:,:)
     integer :: m, mw, i
 
 ! ===================================================================
@@ -195,17 +195,9 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
                     ql_shift,qr_shift,auxl,auxr,wave,s,amdq2,apdq2)
         endif
 
-        p_amdq2 => amdq2
-        p_apdq2 => apdq2
-        if (downwind .eqv. .True.) then
-            ! swap pointers
-            p_apdq2 => amdq2
-            p_amdq2 => apdq2
-        endif
-
         forall(i=1:mx, m=1:num_eqn)
             dq1d(m,i) = dq1d(m,i)-dtdx(i)*(p_amdq(m,i+1) + &
-                    p_apdq(m,i) + p_amdq2(m,i) + p_apdq2(m,i))
+                    p_apdq(m,i) + amdq2(m,i) + apdq2(m,i))
         end forall
 
     endif

@@ -820,8 +820,6 @@ class SharpClawSolver1D(SharpClawSolver):
 
             #Find total fluctuation within each cell
             wave,s,amdq2,apdq2 = self.rp(ql,qr,aux,aux,state.problem_data)
-            if downwind:
-                amdq2,apdq2 = apdq2,amdq2
 
             # Compute dq
             for m in xrange(state.num_eqn):
