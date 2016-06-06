@@ -142,7 +142,9 @@ class SharpClawSolver(Solver):
        }
 
     _cfl_default = {
-        'DWSSP22':  [0.24,0.25],
+        'DWSSP22':  [0.24, 0.25],
+        'SSP22':    [0.45, 0.5],
+        'SSP33':    [0.45, 0.5],
         'SSP104':   [2.45, 2.5],
         'SSPLMM32': [0.24, 0.25],
         'SSPLMM43': [0.15, 1./6.],
@@ -182,6 +184,13 @@ class SharpClawSolver(Solver):
         self.a = None
         self.b = None
         self.c = None
+
+        # Used only if time integrator is 'DWRK'
+        # self.a, self.at, and self.v are the Shu-Osher matrices/vector
+        self.at = None
+        self.v = None
+        self.fun_eval = []
+        self.funt_eval = []
 
         # Used only if time integrator is a multistep method
         self.sspcoeff0 = None
@@ -245,6 +254,11 @@ class SharpClawSolver(Solver):
                 self.cfl_desired = 0.9*self.cfl_max
         except KeyError:
             raise KeyError('Maximum CFL number is not provided.')
+
+        # Find which function evaluations need to be computed for 'DWRK' time integrators
+        if self.time_integrator == 'DWRK':
+            [self.fun_eval.append(i) for i in xrange(1,self.a.shape[0]) if any(abs(self.a[:,i]))>0]
+            [self.funt_eval.append(i) for i in xrange(self.at.shape[0]) if any(abs(self.at[:,i]))>0]
 
         self._allocate_registers(solution)
         self._set_mthlim()
@@ -312,6 +326,7 @@ class SharpClawSolver(Solver):
             self.ssp22(state)
 
         elif self.time_integrator == 'DWSSP22':
+            # Implementation is in the Shu-Osher form
             dw_euler_step = state.q - self.dt*self.dwdq_dt
             self._registers[0].q = 5./6.*(state.q + self.dt*self.dq_dt) + 1./6.*dw_euler_step
             self._registers[0].t = state.t + 2./3.*self.dt
@@ -345,6 +360,9 @@ class SharpClawSolver(Solver):
 
             num_stages = len(self.b)
             for i in range(1,num_stages):
+                if self.call_before_step_each_stage:
+                    self.before_step(self,self._registers[i])
+
                 self._registers[i].q[:] = state.q
                 for j in range(i):
                     self._registers[i].q += self.a[i,j]*self._registers[j].q
@@ -355,6 +373,40 @@ class SharpClawSolver(Solver):
 
             for j in range(num_stages):
                 state.q += self.b[j]*self._registers[j].q
+
+        elif self.time_integrator == 'DWRK':
+            # General explicit downwind RK with specified coefficients
+            # Implementation is in the Shu-Osher form
+
+            # This is pulled out of the loop in order to use dq_dt and dwdq_dt
+            num_stages = len(self.v)
+            self._registers[0].q[:] = self.v[0]*state.q
+            self._registers[0].t = state.t
+            if 0 in self.funt_eval:
+                self._registers[num_stages].q = self._registers[0].q - self.dt*self.dwdq_dt/self.sspcoeff
+            self._registers[0].q += self.dt*self.dq_dt/self.sspcoeff
+
+            for i in range(1,num_stages):
+                if self.call_before_step_each_stage:
+                    self.before_step(self,self._registers[i])
+
+                self._registers[i].q[:] = self.v[i]*state.q
+                for j in range(i):
+                    self._registers[i].q += self.a[i,j]*self._registers[j].q + self.at[i,j]*self._registers[j+num_stages].q
+
+                # self._registers[i].q eventually stores Euler steps y_i + dt*f(y_i) and
+                # y_i - dt*ft(y_i) after stage solution y_i is computed
+                # Only necessary Euler steps are computed based on the indices of non-zero columns
+                # of Shu-Osher matrices stored in self.fun_eval and self.funt_eval
+                if i < num_stages-1:
+                    self._registers[i].t = state.t + self.dt*self.c[i]
+                    if i in self.funt_eval:
+                        self._registers[i+num_stages].q = self._registers[i].q - self.dq(self._registers[i],downwind=True)/self.sspcoeff
+                    if i in self.fun_eval:
+                        self._registers[i].q += self.dq(self._registers[i])/self.sspcoeff
+
+            self._registers[num_stages-1].t = state.t + self.dt*self.c[-1]
+            state.q[:] = self._registers[num_stages-1].q
 
         ### Linear multistep methods ###
         elif self.time_integrator in ['SSPLMMk2', 'SSPLMMk3']:
@@ -606,14 +658,15 @@ class SharpClawSolver(Solver):
         # Generally the number of registers for the starting method should be at most 
         # equal to the number of registers of the LMM
         if self.time_integrator   == 'Euler':   nregisters=0
-        elif self.time_integrator == 'DWSSP22':   nregisters=1
+        elif self.time_integrator == 'DWSSP22': nregisters=1
         elif self.time_integrator == 'SSP22':   nregisters=1
         elif self.time_integrator == 'SSP33':   nregisters=1
         elif self.time_integrator == 'SSP104':  nregisters=1
-        elif self.time_integrator == 'RK':      nregisters=len(self.b)+1
-        elif self.time_integrator == 'SSPLMMk2': nregisters=self.lmm_steps
-        elif self.time_integrator == 'SSPLMMk3': nregisters=self.lmm_steps
-        elif self.time_integrator == 'LMM': nregisters=len(self.alpha)
+        elif self.time_integrator == 'RK':      nregisters=len(self.c)
+        elif self.time_integrator == 'DWRK':    nregisters=2*(len(self.v))
+        elif self.time_integrator == 'SSPLMMk2':nregisters=self.lmm_steps
+        elif self.time_integrator == 'SSPLMMk3':nregisters=self.lmm_steps
+        elif self.time_integrator == 'LMM':     nregisters=len(self.alpha)
         else:
             raise Exception('Unrecognized time integrator: '+self.time_integrator)
         
