@@ -17,6 +17,7 @@ class BC():
     extrap    = 1
     periodic   = 2
     wall = 3
+    extrap1    = 4
 
 #################### Dummy routines ######################
 def default_compute_gauge_values(q,aux):
@@ -464,6 +465,10 @@ class Solver(object):
         if bc_type == BC.extrap:
             for i in xrange(self.num_ghost):
                 array[:,i,...] = array[:,self.num_ghost,...]
+        elif bc_type == BC.extrap1:
+            for i in xrange(self.num_ghost-1):
+                array[:,i,...] = 2.*array[:,self.num_ghost,...] - array[:,self.num_ghost+1,...]
+            array[:,self.num_ghost-1,...] = array[:,self.num_ghost,...]
         elif bc_type == BC.periodic:
             # This process owns the whole patch
             array[:,:self.num_ghost,...] = array[:,-2*self.num_ghost:-self.num_ghost,...]
@@ -500,7 +505,11 @@ class Solver(object):
         
         if bc_type == BC.extrap:
             for i in xrange(self.num_ghost):
-                array[:,-i-1,...] = array[:,-self.num_ghost-1,...] 
+                array[:,-i-1,...] = array[:,-self.num_ghost-1,...]
+        elif bc_type == BC.extrap1:
+            for i in xrange(self.num_ghost-1):
+                array[:,-i-1,...] = 2.*array[:,-self.num_ghost-1,...] - array[:,-self.num_ghost-2,...]
+            array[:,-self.num_ghost,...] = array[:,-self.num_ghost-1,...]
         elif bc_type == BC.periodic:
             # This process owns the whole patch
             array[:,-self.num_ghost:,...] = array[:,self.num_ghost:2*self.num_ghost,...]
