@@ -21,7 +21,7 @@ crossed the domain exactly once.
 from numpy import sqrt, exp, cos
 from clawpack import riemann
     
-def setup(use_petsc=False, kernel_language='Fortran', solver_type='classic', outdir='./_output', ptwise=False, \
+def setup(use_petsc=False, kernel_language='Fortran', solver_type='sharpclaw', outdir='./_output', ptwise=False, \
         weno_order=5, time_integrator='SSP104', disable_output=False):
 
     if use_petsc:
@@ -43,6 +43,9 @@ def setup(use_petsc=False, kernel_language='Fortran', solver_type='classic', out
         solver.limiters = pyclaw.limiters.tvd.MC
     elif solver_type=='sharpclaw':
         solver = pyclaw.SharpClawSolver1D(riemann_solver)
+        import sharpclaw1               # Import custom Fortran code
+        solver.fmod = sharpclaw1
+        solver.char_decomp = 2
         solver.weno_order=weno_order
         solver.time_integrator=time_integrator
         if time_integrator == 'SSPLMMk3':
@@ -56,8 +59,8 @@ def setup(use_petsc=False, kernel_language='Fortran', solver_type='classic', out
     num_eqn = 2
     state = pyclaw.State(domain,num_eqn)
 
-    solver.bc_lower[0] = pyclaw.BC.periodic
-    solver.bc_upper[0] = pyclaw.BC.periodic
+    solver.bc_lower[0] = pyclaw.BC.wall
+    solver.bc_upper[0] = pyclaw.BC.extrap1
 
     rho  = 1.0 # Material density
     bulk = 1.0 # Material bulk modulus
@@ -82,7 +85,7 @@ def setup(use_petsc=False, kernel_language='Fortran', solver_type='classic', out
     claw.num_output_times = 10
     if disable_output:
         claw.output_format = None
-    claw.tfinal = 1.0
+    claw.tfinal = 2.0
     claw.setplot = setplot
 
     return claw

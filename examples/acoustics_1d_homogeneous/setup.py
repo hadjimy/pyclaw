@@ -9,7 +9,7 @@ from os.path import pardir as pardir
 
 def configuration(parent_package='',top_path=None):
     from numpy.distutils.misc_util import Configuration
-    config = Configuration('euler_1d', parent_package, top_path)
+    config = Configuration('acoustics_1d_homogeneous', parent_package, top_path)
 
     if top_path:
         # installing into clawpack
@@ -24,9 +24,7 @@ def configuration(parent_package='',top_path=None):
                                                             'apply_char_bc.f90',
                                                             'reconstruct.f90','flux1.f90']]
 
-    config.add_extension('sharpclaw1',
-                         ['evec.f90'] + sharpclaw_srcs)
-    config.add_extension('euler_tfluct','euler_tfluct.f90')
+    config.add_extension('sharpclaw1',['evec.f90'] + sharpclaw_srcs)
 
     return config
 

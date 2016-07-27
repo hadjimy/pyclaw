@@ -85,11 +85,17 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
                 ! characteristic-wise second order reconstruction
                 call evec(mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
                 call tvd2_char(q1d,ql,qr,mthlim,num_eqn,num_ghost,evl,evr)
+                if (char_bc .eqv. .True.) then
+                    call apply_char_bc(ql,qr,maxnx,num_eqn,num_ghost,evl,evr,bc_lower,bc_upper)
+                endif
         end select
         case(2) ! lim_type = 2: High-order WENO reconstruction
         select case (char_decomp)
             case (0) ! no characteristic decomposition
                 call weno_comp(q1d,ql,qr,num_eqn,maxnx,num_ghost)
+                if (char_bc .eqv. .True.) then
+                    call apply_char_bc(ql,qr,maxnx,num_eqn,num_ghost,evl,evr,bc_lower,bc_upper)
+                endif
             case (1) ! wave-based reconstruction
                 if (num_dim.eq.1) then
                     call rp(maxnx,num_eqn,num_waves,num_aux,num_ghost,mx,&
@@ -107,6 +113,9 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
             case (2) ! characteristic-wise reconstruction
                 call evec(mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
                 call weno5_char(q1d,ql,qr,maxnx,num_eqn,num_ghost,evl,evr)
+                if (char_bc .eqv. .True.) then
+                    call apply_char_bc(ql,qr,maxnx,num_eqn,num_ghost,evl,evr,bc_lower,bc_upper)
+                endif
             case (3) ! transmission-based reconstruction
                 call evec(mx,num_eqn,num_ghost,mx,q1d,aux,aux,evl,evr)
                 call weno5_trans(q1d,ql,qr,evl,evr)
@@ -122,6 +131,27 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
             write(*,*) 'You should set 1<=lim_type<=3'
             stop
       end select
+
+    ! write(*,*) 'ql', ql(1,:1)
+    ! write(*,*) 'qr', qr(1,:1)
+    ! ! write(*,*) 
+
+    ! ql(:,maxnx+1) = qr(:,maxnx)
+    ! qr(:,0) = ql(:,1)
+    ! ql(:,maxnx+2) = qr(:,maxnx+1)
+    
+    ! write(*,*) 'ql', ql(1,maxnx:)
+    ! write(*,*) 'qr', qr(1,maxnx:)
+    ! write(*,*) 
+    ! write(*,*) 
+    ! read(*,*)
+
+    ! ql(:,0) = 0.d0
+    ! qr(:,-1) = 0.d0
+    ! ! qr(:,-2:-1) = ql(:,-1:0)
+    ! qr(:,maxnx+1) = 0.d0
+    ! ql(:,maxnx+2) = 0.d0
+    ! ql(:,maxnx+1:maxnx+3) = qr(:,maxnx:maxnx+2)
 
 
     ! solve Riemann problem at each interface 

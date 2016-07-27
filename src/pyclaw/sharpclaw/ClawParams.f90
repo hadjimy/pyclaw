@@ -11,7 +11,8 @@ module ClawParams
     ! Method-related parameters:
     integer :: char_decomp, lim_type, weno_order
     integer, allocatable :: mthlim(:)
-    logical :: fwave, tfluct_solver
+    logical :: fwave, tfluct_solver, char_bc
+    integer :: bc_lower, bc_upper
 
 contains
 

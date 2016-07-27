@@ -38,7 +38,7 @@ b = np.array([.206734020864804, .206734020864804, .117097251841844, .18180256012
 c = np.array([0., .3772689153313680, .7545378306627360, .7289856616121880, .6992261359316680])
 
 def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_type='sharpclaw',
-        kernel_language='Fortran',use_char_decomp=False,tfluct_solver=True):
+        kernel_language='Fortran',time_integrator='RK',use_char_decomp=True,tfluct_solver=False):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -52,10 +52,14 @@ def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_t
 
     if solver_type=='sharpclaw':
         solver = pyclaw.SharpClawSolver1D(rs)
-        solver.time_integrator = 'RK'
-        solver.a, solver.b, solver.c = a, b, c
-        solver.cfl_desired = 0.6
-        solver.cfl_max = 0.7
+        solver.time_integrator = time_integrator
+        if solver.time_integrator == 'RK':
+            solver.a, solver.b, solver.c = a, b, c
+            solver.cfl_desired = 0.6
+            solver.cfl_max = 0.7
+        elif solver.time_integrator == 'DWRK':
+            [solver.sspcoeff, solver.v, solver.a, solver.at, solver.c] = method_coeff
+            solver.cfl_max = 0.5*solver.sspcoeff
         if use_char_decomp:
             try:
                 import sharpclaw1               # Import custom Fortran code
@@ -78,7 +82,8 @@ def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_t
                 print 'Unable to load sharpclaw1 solver, did you run make?'
                 pass
             solver.lim_type = 2             # WENO reconstruction
-            solver.char_decomp = 2          # characteristic-wise reconstruction
+            solver.char_decomp = 0          # characteristic-wise reconstruction
+            solver.char_bc = 0
     else:
         solver = pyclaw.ClawSolver1D(rs)
 
@@ -88,7 +93,8 @@ def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_t
     solver.bc_upper[0]=pyclaw.BC.extrap
 
     mx = 400;
-    x = pyclaw.Dimension(-5.0,5.0,mx,name='x')
+    # x = pyclaw.Dimension(-5.0,5.0,mx,name='x')
+    x = pyclaw.Dimension(-1.,1.,mx,name='x')
     domain = pyclaw.Domain([x])
     state = pyclaw.State(domain,num_eqn)
 
@@ -99,15 +105,33 @@ def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_t
 
     xc = state.grid.p_centers[0]
     epsilon = 0.2
-    velocity = (xc<-4.)*2.629369
-    pressure = (xc<-4.)*10.33333 + (xc>=-4.)*1.
+    # velocity = (xc<-4.)*2.629369
+    # pressure = (xc<-4.)*10.33333 + (xc>=-4.)*1.
 
-    state.q[density ,:] = (xc<-4.)*3.857143 + (xc>=-4.)*(1+epsilon*np.sin(5*xc))
+    beta = 5.; x0 = 0.; x1 = 0.
+    state.q[density,:] = 1. + epsilon*np.sin(2.*np.pi*xc)
+    velocity = 1.*np.ones(len(xc))
+    pressure = 2.*np.ones(len(xc))
+
+    # state.q[density ,:] = (xc<-4.)*3.857143 + (xc>=-4.)*(1+epsilon*np.sin(5*xc))
     state.q[momentum,:] = velocity * state.q[density,:]
     state.q[energy  ,:] = pressure/(gamma - 1.) + 0.5 * state.q[density,:] * velocity**2
 
+    # initialize boundary cells if boundary condition is outflow
+    if solver.bc_upper[0] == pyclaw.BC.outflow:
+        ng = solver.num_ghost
+        dx = state.grid.delta[0]
+        xbc = np.linspace(xc[-1]+dx,xc[-1]+ng*dx,ng)
+        state.qbc[density ,-ng:] = 1. + epsilon*np.sin(2*np.pi*xbc)
+        state.qbc[momentum,-ng:] = velocity * state.qbc[density,-ng:]
+        state.qbc[energy  ,-ng:] = pressure/(gamma - 1.) + 0.5 * state.qbc[density,-ng:] * velocity**2
+
+        # print 'setup'
+        # print state.qbc[:,-4:]
+        # print
+
     claw = pyclaw.Controller()
-    claw.tfinal = 1.8
+    claw.tfinal = 2.
     claw.solution = pyclaw.Solution(state,domain)
     claw.solver = solver
     claw.num_output_times = 10
@@ -131,25 +155,46 @@ def setplot(plotdata):
     plotfigure = plotdata.new_plotfigure(name='', figno=0)
 
     plotaxes = plotfigure.new_plotaxes()
-    plotaxes.axescmd = 'subplot(211)'
+    plotaxes.axescmd = 'subplot(311)'
     plotaxes.title = 'Density'
-    plotaxes.xlimits = (-5.,5.)
+    # plotaxes.xlimits = (-5.,5.)
+    plotaxes.xlimits = (-1.,1.)
 
     plotitem = plotaxes.new_plotitem(plot_type='1d')
     plotitem.plot_var = density
     plotitem.kwargs = {'linewidth':3}
     
     plotaxes = plotfigure.new_plotaxes()
+    plotaxes.title = 'Momentum'
+    plotaxes.axescmd = 'subplot(312)'
+
+    plotitem = plotaxes.new_plotitem(plot_type='1d')
+    plotitem.plot_var = momentum
+    plotitem.kwargs = {'linewidth':3}
+    # plotaxes.xlimits = (-5.,5.)
+    plotaxes.xlimits = (-1.,1.)
+
+    plotaxes = plotfigure.new_plotaxes()
     plotaxes.title = 'Energy'
-    plotaxes.axescmd = 'subplot(212)'
+    plotaxes.axescmd = 'subplot(313)'
 
     plotitem = plotaxes.new_plotitem(plot_type='1d')
     plotitem.plot_var = energy
     plotitem.kwargs = {'linewidth':3}
-    plotaxes.xlimits = (-5.,5.)
-    
+    # plotaxes.xlimits = (-5.,5.)
+    plotaxes.xlimits = (-1.,1.)
+
     return plotdata
 
 if __name__=="__main__":
+    from nodepy import rk
+    RK = rk.loadRKM('RK44')
+    r, v, alphaup, alphadown = RK.optimal_perturbed_splitting()
+    v = v.astype(float)
+    alphaup = alphaup.astype(float)
+    alphadown = alphadown.astype(float)
+    RK.c = RK.c.astype(float)
+    method_coeff = [r, v, alphaup, alphadown, RK.c]
+
     from clawpack.pyclaw.util import run_app_from_main
     output = run_app_from_main(setup,setplot)

@@ -162,7 +162,8 @@ contains
                 im=(-1)**(m1+1)
                 ione=im; inone=-im; intwo=-2*im
   
-                do i=num_ghost,mx2-num_ghost+1
+                ! do i=num_ghost,mx2-num_ghost+1
+                do i=num_ghost,mx2-num_ghost+2
   
                     t1=im*(dq1m(i+intwo)-dq1m(i+inone))
                     t2=im*(dq1m(i+inone)-dq1m(i      ))
@@ -188,8 +189,10 @@ contains
                 end do
             end do
 
-           qr(m,num_ghost-1:mx2-num_ghost  )=uu(1,num_ghost:mx2-num_ghost+1)
-           ql(m,num_ghost  :mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
+           ! qr(m,num_ghost-1:mx2-num_ghost  )=uu(1,num_ghost:mx2-num_ghost+1)
+           ! ql(m,num_ghost  :mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
+           qr(m,num_ghost:mx2-num_ghost+1)=uu(1,num_ghost+1:mx2-num_ghost+2)
+           ql(m,num_ghost:mx2-num_ghost+1)=uu(2,num_ghost:mx2-num_ghost+1)
 
         end do
 
@@ -233,6 +236,11 @@ contains
             ql(m,i)   = qr(m,i-1)
         end forall
 
+        ! do m=1,num_eqn
+        !     qr(m,num_ghost-1) = 0.d0
+        !     qr(m,mx2-num_ghost+1) = (-q(m,mx2-num_ghost-1)+7.*(q(m,mx2-num_ghost)+q(m,mx2-num_ghost+1))-q(m,mx2-num_ghost+2))/12.
+        ! enddo
+
         do ip=1,num_eqn
 
             ! Project the difference of the cell averages to the
@@ -241,6 +249,7 @@ contains
         
             do m2 = -2,2
                do  i = num_ghost+1,mx2-2
+               ! do  i = num_ghost+1,mx2-1
                   hh(m2,i) = 0.d0
                   do m=1,num_eqn 
                     hh(m2,i) = hh(m2,i) + evl(ip,m,i)*dq(m,i+m2)
@@ -262,6 +271,7 @@ contains
                 intwo=-2*im
   
                 do i=num_ghost,mx2-num_ghost+1
+                ! do i=num_ghost,mx2-num_ghost+2
       
                     t1=im*(hh(intwo,i)-hh(inone,i))
                     t2=im*(hh(inone,i)-hh(0,i    ))
@@ -290,6 +300,7 @@ contains
             do m = 1,num_eqn
                 do i=num_ghost,mx2-num_ghost+1
                     qr(m,i-1) = qr(m,i-1) + evr(m,ip,i)*uu(1,i)
+                    ! qr(m,i) = qr(m,i) + evr(m,ip,i+1)*uu(1,i+1)
                     ql(m,i  ) = ql(m,i  ) + evr(m,ip,i)*uu(2,i)
                 enddo
             enddo

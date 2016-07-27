@@ -6,13 +6,9 @@ ONE_D_SHARPCLAW_SOURCES = evec.f90 $(SHARPCLAW)/flux1.f90 $(SHARPCLAW)/ClawParam
 
 all:
 	make sharpclaw1.so
-	make euler_tfluct.so
 
 sharpclaw1.so: $(ONE_D_SHARPCLAW_SOURCES) 
 	${F2PY} -m sharpclaw1 -c $(ONE_D_SHARPCLAW_SOURCES) 
-
-euler_tfluct.so: euler_tfluct.f90
-	f2py -m $(basename $(notdir $@)) -c $^
 
 clean:
 	rm -f *.o *.so *.pyc *.log

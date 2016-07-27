@@ -163,6 +163,7 @@ class SharpClawSolver(Solver):
         self.weno_order = 5
         self.time_integrator = 'SSP104'
         self.char_decomp = 0
+        self.char_bc = False
         self.tfluct_solver = False
         self.tfluct = default_tfluct
         self.aux_time_dep = False
@@ -274,6 +275,7 @@ class SharpClawSolver(Solver):
             state.set_cparam(self.tfluct)
             self._set_fortran_parameters(state,self.fmod.clawparams,self.fmod.workspace,self.fmod.reconstruct)
 
+        print 'allocate bc arrays in sharpclaw setup'
         self._allocate_bc_arrays(state)
 
         super(SharpClawSolver,self).setup(solution)
@@ -304,6 +306,7 @@ class SharpClawSolver(Solver):
         step_index = self.status['numsteps'] + 1
         if self.accept_step == True:
             self.cfl.set_global_max(0.)
+            print 'first dq call in method'
             self.dq_dt = self.dq(state) / self.dt
             if 'DW' in self.time_integrator:
                 self.dwdq_dt = self.dq(state,downwind=True) / self.dt
@@ -373,6 +376,11 @@ class SharpClawSolver(Solver):
 
             for j in range(num_stages):
                 state.q += self.b[j]*self._registers[j].q
+
+            print 'end of step'
+            print state.q[:,-self.num_ghost:]
+            print
+            raw_input()
 
         elif self.time_integrator == 'DWRK':
             # General explicit downwind RK with specified coefficients
@@ -462,33 +470,63 @@ class SharpClawSolver(Solver):
         if self.time_integrator == 'SSP104':
             s1 = self._registers[0]
             s1.q[:] = state.q
+            s1.qbc[:] = state.qbc
         elif self.time_integrator == 'LMM':
             # Okay to copy state objects here since this only happens a few times
             import copy
             s1 = copy.deepcopy(state)
 
         s1.q = state.q + self.dt*self.dq_dt/6.
+        s1.qbc = state.qbc + self.dt*self.Fbc/6.
+        # print 'begin ssp104'
+        # print s1.qbc[:,-self.num_ghost:]
+        # print
+        # raw_input()
         s1.t = state.t + self.dt/6.
 
         for i in xrange(4):
             if self.call_before_step_each_stage:
                 self.before_step(self,s1)
             s1.q = s1.q + self.dq(s1)/6.
+            s1.qbc = s1.qbc + self.dt*self.Fbc/6.
+            # print 'stage ', i
+            # print s1.qbc[:,-self.num_ghost:]
+            # print
+            # raw_input()
             s1.t = s1.t + self.dt/6.
 
         state.q = state.q/25. + 0.36 * s1.q
         s1.q = 15. * state.q - 5. * s1.q
+        state.qbc = state.qbc/25. + 0.36 * s1.qbc
+        s1.qbc = 15. * state.qbc - 5. * s1.qbc
         s1.t = state.t + self.dt/3.
+
+        # print 's1 update'
+        # print s1.qbc[:,-self.num_ghost:]
+        # print
+        # raw_input()
 
         for i in xrange(4):
             if self.call_before_step_each_stage:
                 self.before_step(self,s1)
             s1.q = s1.q + self.dq(s1)/6.
+            s1.qbc = s1.qbc + self.dt*self.Fbc/6.
+            # print 'stage ', i
+            # print s1.qbc[:,-self.num_ghost:]
+            # print
+            # raw_input()
             s1.t = s1.t + self.dt/6.
 
         if self.call_before_step_each_stage:
             self.before_step(self,s1)
         state.q += 0.6 * s1.q + 0.1 * self.dq(s1)
+        state.qbc += 0.6 * s1.qbc + 0.1 * self.dt * self.Fbc
+
+        print 'end of step'
+        print state.q[:,-self.num_ghost:]
+        # print state.qbc[:,-self.num_ghost:]
+        print
+        raw_input()
 
 
     def update_saved_values(self,state,step_index):
@@ -626,6 +664,9 @@ class SharpClawSolver(Solver):
         clawparams.lim_type      = self.lim_type
         clawparams.weno_order    = self.weno_order
         clawparams.char_decomp   = self.char_decomp
+        clawparams.char_bc       = self.char_bc
+        clawparams.bc_lower      = self.bc_lower[0]
+        clawparams.bc_upper      = self.bc_upper[0]
         clawparams.tfluct_solver = self.tfluct_solver
         clawparams.fwave         = self.fwave
         clawparams.index_capa         = state.index_capa+1
@@ -638,7 +679,7 @@ class SharpClawSolver(Solver):
         clawparams.dx       =grid.delta
         clawparams.mthlim   =self._mthlim
 
-        maxnx = max(grid.num_cells)+2*self.num_ghost
+        maxnx = max(grid.num_cells)#+2*self.num_ghost
         workspace.alloc_workspace(maxnx,self.num_ghost,state.num_eqn,self.num_waves,self.char_decomp)
         reconstruct.alloc_recon_workspace(maxnx,self.num_ghost,state.num_eqn,self.num_waves,
                                             clawparams.lim_type,clawparams.char_decomp)
@@ -799,7 +840,7 @@ class SharpClawSolver1D(SharpClawSolver):
         import numpy as np
 
         self._apply_bcs(state)
-        q = self.qbc 
+        q = self.qbc
 
         grid = state.grid
         mx = grid.num_cells[0]
@@ -807,6 +848,7 @@ class SharpClawSolver1D(SharpClawSolver):
         ixy=1
 
         if self.kernel_language=='Fortran':
+
             rp1 = self.rp.rp1._cpointer
             if self.tfluct_solver:
                 tfluct1 = self.tfluct.tfluct1._cpointer
@@ -855,6 +897,16 @@ class SharpClawSolver1D(SharpClawSolver):
             # Solve Riemann problem at each interface
             q_l=qr[:,:-1]
             q_r=ql[:,1: ]
+
+            # q_l[:,-2] = 0.
+            # q_r[:,-3] = 0.
+            print 'ql'
+            print ql[0,:4]
+            print ql[0,-4:]
+            print 'qr'
+            print qr[0,:4]
+            print qr[0,-4:]
+            # raw_input()
             wave,s,amdq,apdq = self.rp(q_l,q_r,aux_l,aux_r,state.problem_data)
             if downwind:
                 amdq,apdq = apdq,amdq
