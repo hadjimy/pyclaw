@@ -390,10 +390,10 @@ class Solver(object):
 
                     if bc['type'][idim] == BC.custom:
                         if not self._use_old_bc_sig:
-                            bc['custom_fun'](state, dim, state.t, self.qbc,
+                            bc['custom_fun'](self, state, dim, state.t, self.qbc,
                                              self.auxbc, self.num_ghost)
                         else:
-                            bc['custom_fun'](state, dim, state.t, bc['array'], self.num_ghost)
+                            bc['custom_fun'](self, state, dim, state.t, bc['array'], self.num_ghost)
 
                     elif bc['type'][idim] == BC.periodic \
                             and not state.grid.on_upper_boundary[idim]:
@@ -420,10 +420,10 @@ class Solver(object):
 
                     if bc['type'][idim] == BC.custom:
                         if not self._use_old_bc_sig:
-                            bc['custom_fun'](state, dim, state.t, self.qbc,
+                            bc['custom_fun'](self, state, dim, state.t, self.qbc,
                                              self.auxbc, self.num_ghost)
                         else:
-                            bc['custom_fun'](state, dim, state.t, bc['array'], self.num_ghost)
+                            bc['custom_fun'](self, state, dim, state.t, bc['array'], self.num_ghost)
 
                     elif bc['type'][idim] == BC.periodic \
                             and not state.grid.on_lower_boundary[idim]:

@@ -31,7 +31,7 @@ class SharpClawSolver(Solver):
     r"""
     Superclass for all SharpClawND solvers.
 
-    Implements Runge-Kutta time stepping and the basic form of a 
+    Implements Runge-Kutta time stepping and the basic form of a
     semi-discrete step (the dq() function).  If another method-of-lines
     solver is implemented in the future, it should be based on this class,
     which then ought to be renamed to something like "MOLSolver".
@@ -56,6 +56,8 @@ class SharpClawSolver(Solver):
         Time integrator to be used. Currently implemented methods:
 
             - 'Euler'  : 1st-order Forward Euler integration
+            - 'SSP22'  : 2nd-order optimal strong stability preserving method
+            - 'DWSSP22': Downwind version of 2nd-order, 2-stage Runge-Kutta method with minimal truncation error.
             - 'SSP33'  : 3rd-order strong stability preserving method of Shu & Osher
             - 'SSP104' : 4th-order strong stability preserving method Ketcheson
             - 'SSPLMM32': 2nd-order strong stability preserving 3-step linear multistep method,
@@ -64,6 +66,8 @@ class SharpClawSolver(Solver):
                           using SSPRK22 for starting values
             - 'RK'     : Arbitrary Runge-Kutta method, specified by setting `solver.a`
                          and `solver.b` to the Butcher arrays of the method.
+            - 'DWRK'   : Arbitrary Downdind Runge-Kutta method, specified by setting `solver.v`,
+                        `solver.a` and `solver.a_tilde` to the Shu-Osher arrays of the method.
             - 'LMM'    : Arbitrary linear multistep method, specified by setting the
                          coefficient arrays `solver.alpha` and `solver.beta`.
 
@@ -93,11 +97,11 @@ class SharpClawSolver(Solver):
 
         Whether the auxiliary array is time dependent.
         ``Default = False``
-    
+
     .. attribute:: kernel_language
 
         Specifies whether to use wrapped Fortran routines ('Fortran')
-        or pure Python ('Python').  
+        or pure Python ('Python').
         ``Default = 'Fortran'``.
 
     .. attribute:: num_ghost
@@ -106,9 +110,9 @@ class SharpClawSolver(Solver):
         ``Default = 3``
 
     .. attribute:: fwave
-    
-        Whether to split the flux jump (rather than the jump in Q) into waves; 
-        requires that the Riemann solver performs the splitting.  
+
+        Whether to split the flux jump (rather than the jump in Q) into waves;
+        requires that the Riemann solver performs the splitting.
         ``Default = False``
 
     .. attribute:: cfl_desired
@@ -123,7 +127,7 @@ class SharpClawSolver(Solver):
 
     .. attribute:: dq_src
 
-        Whether a source term is present. If it is present the function that 
+        Whether a source term is present. If it is present the function that
         computes its contribution must be provided.
         ``Default = None``
 
@@ -138,15 +142,20 @@ class SharpClawSolver(Solver):
        'SSP22':     1.0,
        'SSP33':     1.0,
        'SSP104':    6.0,
+       'DWSSP22':   1.0,
        'SSPLMM32':  0.5,
        'SSPLMM43':  1./3.,
        'SSPLMM53':  0.5,
        'RK':        None,
+       'DWRK':      None,
        'LMM':       None
        }
 
     _cfl_default = {
+        'SSP22':    [0.45, 0.5],
+        'SSP33':    [0.45, 0.5],
         'SSP104':   [2.45, 2.5],
+        'DWSSP22':  [0.24, 0.25],
         'SSPLMM32': [0.24, 0.25],
         'SSPLMM43': [0.15, 1./6.],
         'SSPLMM53': [0.24, 0.25]
@@ -178,12 +187,23 @@ class SharpClawSolver(Solver):
         self._method = None
         self._registers = None
         self.dq_dt = None
-        self.dt_old = None        
+        self.dq_dt_downwind = None
+        self.dt_old = None
+        self.sspcoeff = None # used only if time integrator is 'DWRK' or a multistep method
 
         # Used only if time integrator is 'RK'
         self.a = None
         self.b = None
         self.c = None
+
+        # Used only if time integrator is 'DWRK'
+        # self.a, self.a_tilde, and self.v are the Shu-Osher arrays
+        # References: Higueras2005,Ketcheson2010,Higueras/Ketcheson/Kocsis2016
+        self.a_tilde = None
+        self.v = None
+        self.a_nonzero_cols = []
+        self.a_tilde_nonzero_cols = []
+        self.downwind = None
 
         # Used only if time integrator is a multistep method
         self.sspcoeff0 = None
@@ -200,7 +220,7 @@ class SharpClawSolver(Solver):
         # Call general initialization function
         super(SharpClawSolver,self).__init__(riemann_solver,claw_package)
 
- 
+
     def setup(self,solution):
         """
         Allocate RK stage arrays or previous step solutions and fortran routine work arrays.
@@ -226,19 +246,19 @@ class SharpClawSolver(Solver):
                     assert 3 <= self.lmm_steps, \
                         'Must set solver.lmm_steps greater than 2 for 2nd order SSPLMM integrator.'
                     self.sspcoeff = (self.lmm_steps - 2.)/(self.lmm_steps - 1.)
-                    # The choice of cfl_desired and cfl_max is intended for LMM with many steps (up to 20). 
+                    # The choice of cfl_desired and cfl_max is intended for LMM with many steps (up to 20).
                     # If more steps are chosen the solution may not be accurate enough.
                     # For a smaller number of steps, higher values of cfl_desired and cfl_max can be used.
                     if self.cfl_max is None:
-                        self.cfl_desired = 0.14*self.sspcoeff 
-                        self.cfl_max = 0.15*self.sspcoeff 
+                        self.cfl_desired = 0.14*self.sspcoeff
+                        self.cfl_max = 0.15*self.sspcoeff
                 elif self.time_integrator == 'SSPLMMk3':
                     assert 4 <= self.lmm_steps <= 5, \
                         'Must set solver.lmm_steps equal to 4 or 5 for 3rd order SSPLMM integrator.'
                     self.sspcoeff = (self.lmm_steps - 3.)/(self.lmm_steps - 1.)
                     if self.cfl_max is None:
-                        self.cfl_desired = 0.48*self.sspcoeff 
-                        self.cfl_max = 0.5*self.sspcoeff 
+                        self.cfl_desired = 0.48*self.sspcoeff
+                        self.cfl_max = 0.5*self.sspcoeff
             else:
                 if self.cfl_max is None:
                     self.cfl_desired = self._cfl_default[self.time_integrator][0]
@@ -248,11 +268,17 @@ class SharpClawSolver(Solver):
         except KeyError:
             raise KeyError('Maximum CFL number is not provided.')
 
+        # Find which function evaluations need to be computed for 'DWRK' time integrators
+        # Lists self.a_nonzero_cols and self.a_tilde_nonzero_cols store the indices of non-zero columns of Shu-Osher arrays
+        if self.time_integrator == 'DWRK':
+            self.a_nonzero_cols = [i for i in range(1,self.a.shape[0]) if any(abs(self.a[:,i]))>0]
+            self.a_tilde_nonzero_cols = [i for i in range(self.a_tilde.shape[0]) if any(abs(self.a_tilde[:,i]))>0]
+
         self._allocate_registers(solution)
         self._set_mthlim()
 
         state = solution.states[0]
- 
+
         if self.kernel_language=='Fortran':
             if self.fmod is None:
                 so_name = 'clawpack.pyclaw.sharpclaw.sharpclaw'+str(self.num_dim)
@@ -292,6 +318,8 @@ class SharpClawSolver(Solver):
         step_index = self.status['numsteps'] + 1
         if self.accept_step == True:
             self.cfl.set_global_max(0.)
+            if 'DW' in self.time_integrator[:2]:
+                self.dq_dt_downwind = self.dq(state,downwind=True) / self.dt
             self.dq_dt = self.dq(state) / self.dt
 
         if 'LMM' in self.time_integrator:
@@ -346,6 +374,53 @@ class SharpClawSolver(Solver):
 
             for j in range(num_stages):
                 state.q += self.b[j]*self._registers[j].q
+
+        ### Downwind Runge-Kutta methods ###
+        elif self.time_integrator == 'DWSSP22':
+            self._registers[0].q = state.q - self.dt*self.dq_dt_downwind
+            self._registers[1].q = 5./6.*(state.q + self.dt*self.dq_dt) + 1./6.*self._registers[0].q
+            self._registers[1].t = state.t + 2./3.*self.dt
+
+            if self.call_before_step_each_stage:
+                self.before_step(self,self._registers[1])
+            state.q = 0.75*(self._registers[1].q + self.dq(self._registers[1])) + 0.25*self._registers[0].q
+
+        elif self.time_integrator == 'DWRK':
+            # General explicit downwind RK with specified coefficients
+            # Method is
+            #
+            #       y = v * u_n  +  a * (y + dt/r * f(y))  +  a_tilde * (y - dt/r * f_tilde(y))
+            #
+            # where y are the stages of an s-stage Runge-Kutta and u_(n+1) = y_(s+1).
+
+            # This is pulled out of the loop in order to use dq_dt and dq_dt_downwind
+            num_stages = len(self.v)-1
+            if 0 in self.a_tilde_nonzero_cols:
+                self._registers[num_stages].q = state.q - self.dt*self.dq_dt_downwind/self.sspcoeff
+            self._registers[0].q = state.q + self.dt*self.dq_dt/self.sspcoeff
+            self._registers[0].t = state.t
+
+            for i in range(1,num_stages):
+                if self.call_before_step_each_stage:
+                    self.before_step(self,self._registers[i])
+
+                self._registers[i].q = self.v[i]*state.q
+                for j in range(i):
+                    self._registers[i].q += self.a[i,j]*self._registers[j].q + self.a_tilde[i,j]*self._registers[j+num_stages].q
+                self._registers[i].t = state.t + self.dt*self.c[i]
+
+                # self._registers[i].q eventually stores Euler steps y_i + dt*f(y_i) and
+                # y_i - dt*f_tilde(y_i) after stage solution y_i is computed.
+                # Only necessary Euler steps are computed based on the indices of non-zero columns
+                # of Shu-Osher matrices stored in the self.a_nonzero_cols and self.a_tilde_nonzero_cols lists.
+                if i in self.a_tilde_nonzero_cols:
+                    self._registers[i+num_stages].q = self._registers[i].q - self.dq(self._registers[i],downwind=True)/self.sspcoeff
+                if i in self.a_nonzero_cols:
+                    self._registers[i].q += self.dq(self._registers[i])/self.sspcoeff
+
+            state.q = self.v[-1]*state.q
+            for j in range(num_stages):
+                state.q += self.a[-1,j]*self._registers[j].q + self.a_tilde[-1,j]*self._registers[j+num_stages].q
 
         ### Linear multistep methods ###
         elif self.time_integrator in ['SSPLMMk2', 'SSPLMMk3']:
@@ -431,7 +506,7 @@ class SharpClawSolver(Solver):
 
 
     def update_saved_values(self,state,step_index):
-        r""" 
+        r"""
         Updates lists of saved function evaluations, solution values, dt and dtFE for LMMs.
         For 3rd-order SSPLMM additional conditions are checked if self.check_lmm_cond is set to True.
         If these conditions are violated, the step is rejected.
@@ -496,7 +571,7 @@ class SharpClawSolver(Solver):
         r"""
         This routine checks the additional conditions for the 3rd-order SSPLMMs.
         This is a posteriori check after a step is accepted.
-        In particular, there is a condition on the step size for the starting values and 
+        In particular, there is a condition on the step size for the starting values and
         a condition on the ratio of forward Euler step sizes at very step.
         If the conditions are violated we muct retrieve the previous solution and discard
         that step; otherwise the step is accepted.
@@ -523,13 +598,14 @@ class SharpClawSolver(Solver):
         if len(self._mthlim)!=self.num_waves:
             raise Exception('Length of solver.limiters is not equal to 1 or to solver.num_waves')
 
-       
-    def dq(self,state):
+
+    def dq(self,state,downwind=False):
         """
         Evaluate dq/dt * (delta t)
         """
 
-        deltaq = self.dq_hyperbolic(state)
+        self.downwind = downwind
+        deltaq = self.dq_hyperbolic(state,downwind)
 
         if self.dq_src is not None:
             deltaq+=self.dq_src(self,state,self.dt)
@@ -537,10 +613,10 @@ class SharpClawSolver(Solver):
         return deltaq
 
 
-    def dq_hyperbolic(self,state):
+    def dq_hyperbolic(self,state,downwind):
         raise NotImplementedError('You must subclass SharpClawSolver.')
 
-         
+
     def dqdt(self,state):
         """
         Evaluate dq/dt.  This routine is used for implicit time stepping.
@@ -589,23 +665,26 @@ class SharpClawSolver(Solver):
 
         This routine is only used by method-of-lines solvers (SharpClaw),
         not by the Classic solvers.  It allocates additional State objects
-        to store the intermediate stages used by Runge--Kutta and Multistep 
+        to store the intermediate stages used by Runge--Kutta and Multistep
         time integrators.
 
         If we create a MethodOfLinesSolver subclass, this should be moved there.
         """
-        # Generally the number of registers for the starting method should be at most 
+        # Generally the number of registers for the starting method should be at most
         # equal to the number of registers of the LMM
-        if self.time_integrator   == 'Euler':   nregisters=0
-        elif self.time_integrator == 'SSP33':   nregisters=1
-        elif self.time_integrator == 'SSP104':  nregisters=1
-        elif self.time_integrator == 'RK':      nregisters=len(self.b)+1
+        if self.time_integrator   == 'Euler':    nregisters=0
+        elif self.time_integrator == 'SSP22':    nregisters=1
+        elif self.time_integrator == 'SSP33':    nregisters=1
+        elif self.time_integrator == 'SSP104':   nregisters=1
+        elif self.time_integrator == 'RK':       nregisters=len(self.b)+1
+        elif self.time_integrator == 'DWSSP22':  nregisters=2
+        elif self.time_integrator == 'DWRK':     nregisters=2*(len(self.v)-1)
         elif self.time_integrator == 'SSPLMMk2': nregisters=self.lmm_steps
         elif self.time_integrator == 'SSPLMMk3': nregisters=self.lmm_steps
-        elif self.time_integrator == 'LMM': nregisters=len(self.alpha)
+        elif self.time_integrator == 'LMM':      nregisters=len(self.alpha)
         else:
             raise Exception('Unrecognized time integrator: '+self.time_integrator)
-        
+
         state = solution.states[0]
         # Use the same class constructor as the solution for the Runge Kutta stages
         self._registers = []
@@ -619,7 +698,7 @@ class SharpClawSolver(Solver):
         Decide whether to accept or not the current step.
         For Runge-Kutta methods the step is accepted if cfl <= cfl_max.
         For SSPLMM32 the choice of step-size guarantees the cfl condition is satisfied for the steps the LMM
-        is used. Hence, we need to check the cfl condition only for the starting steps. 
+        is used. Hence, we need to check the cfl condition only for the starting steps.
         """
         accept_step = True
         cfl = self.cfl.get_cached_max()
@@ -650,7 +729,7 @@ class SharpClawSolver(Solver):
         Set size of next step depending on the time integrator and
         whether or not the current step was accepted.
         """
-        self.dt_old = self.dt        
+        self.dt_old = self.dt
         cfl = self.cfl.get_cached_max()
 
         if 'SSPLMM' in self.time_integrator:
@@ -686,23 +765,23 @@ class SharpClawSolver1D(SharpClawSolver):
 # ========================================================================
     """
     SharpClaw solver for one-dimensional problems.
-    
+
     Used to solve 1D hyperbolic systems using the SharpClaw algorithms,
     which are based on WENO reconstruction and Runge-Kutta time stepping.
     """
 
     __doc__ += add_parent_doc(SharpClawSolver)
-    
+
     def __init__(self,riemann_solver=None,claw_package=None):
         r"""
         See :class:`SharpClawSolver1D` for more info.
-        """   
+        """
         self.num_dim = 1
         self.reflect_index = [1]
         super(SharpClawSolver1D,self).__init__(riemann_solver,claw_package)
 
 
-    def dq_hyperbolic(self,state):
+    def dq_hyperbolic(self,state,downwind):
         r"""
         Compute dq/dt * (delta t) for the hyperbolic hyperbolic system.
 
@@ -714,11 +793,11 @@ class SharpClawSolver1D(SharpClawSolver):
          0     1     2     3     4     mx+num_ghost-2     mx+num_ghost      mx+num_ghost+2
                      |                        mx+num_ghost-1 |  mx+num_ghost+1
          |     |     |     |     |   ...   |     |     |     |     |
-            0     1  |  2     3            mx+num_ghost-2    |mx+num_ghost       
+            0     1  |  2     3            mx+num_ghost-2    |mx+num_ghost
                                                   mx+num_ghost-1   mx+num_ghost+1
 
         The top indices represent the values that are located on the grid
-        cell boundaries such as waves, s and other Riemann problem values, 
+        cell boundaries such as waves, s and other Riemann problem values,
         the bottom for the cell centered values such as q.  In particular
         the ith grid cell boundary has the following related information::
 
@@ -731,11 +810,11 @@ class SharpClawSolver1D(SharpClawSolver):
         values are in the cell.
 
         """
-    
+
         import numpy as np
 
         self._apply_bcs(state)
-        q = self.qbc 
+        q = self.qbc
 
         grid = state.grid
         mx = grid.num_cells[0]
@@ -749,7 +828,7 @@ class SharpClawSolver1D(SharpClawSolver):
             else:
                 tfluct1 = self.tfluct
 
-            dq,cfl=self.fmod.flux1(q,self.auxbc,self.dt,state.t,ixy,mx,self.num_ghost,mx,rp1,tfluct1)
+            dq,cfl=self.fmod.flux1(q,self.auxbc,self.dt,state.t,ixy,mx,self.num_ghost,mx,rp1,tfluct1,downwind)
 
         elif self.kernel_language=='Python':
 
@@ -761,7 +840,7 @@ class SharpClawSolver1D(SharpClawSolver):
                 dtdx = self.dt / (grid.delta[0] * state.aux[state.index_capa,:])
             else:
                 dtdx += self.dt/grid.delta[0]
- 
+
             aux=self.auxbc
             if aux.shape[0]>0:
                 aux_l=aux[:,:-1]
@@ -770,28 +849,30 @@ class SharpClawSolver1D(SharpClawSolver):
                 aux_l = None
                 aux_r = None
 
-            #Reconstruct (wave reconstruction uses a Riemann solve)
-            if self.lim_type==-1: #1st-order Godunov
+            # Reconstruct (wave reconstruction uses a Riemann solve)
+            if self.lim_type==-1: # 1st-order Godunov
                 ql=q; qr=q
-            elif self.lim_type==0: #Unlimited reconstruction
+            elif self.lim_type==0: # Unlimited reconstruction
                 raise NotImplementedError('Unlimited reconstruction not implemented')
-            elif self.lim_type==1: #TVD Reconstruction
+            elif self.lim_type==1: # TVD Reconstruction
                 raise NotImplementedError('TVD reconstruction not implemented')
-            elif self.lim_type==2: #WENO Reconstruction
-                if self.char_decomp==0: #No characteristic decomposition
+            elif self.lim_type==2: # WENO Reconstruction
+                if self.char_decomp==0: # No characteristic decomposition
                     ql,qr=recon.weno(5,q)
-                elif self.char_decomp==1: #Wave-based reconstruction
+                elif self.char_decomp==1: # Wave-based reconstruction
                     q_l=q[:,:-1]
                     q_r=q[:,1: ]
                     wave,s,amdq,apdq = self.rp(q_l,q_r,aux_l,aux_r,state.problem_data)
                     ql,qr=recon.weno5_wave(q,wave,s)
-                elif self.char_decomp==2: #Characteristic-wise reconstruction
+                elif self.char_decomp==2: # Characteristic-wise reconstruction
                     raise NotImplementedError
 
             # Solve Riemann problem at each interface
             q_l=qr[:,:-1]
             q_r=ql[:,1: ]
             wave,s,amdq,apdq = self.rp(q_l,q_r,aux_l,aux_r,state.problem_data)
+            if downwind:
+                amdq,apdq = apdq,amdq
 
             # Loop limits for local portion of grid
             # THIS WON'T WORK IN PARALLEL!
@@ -813,12 +894,12 @@ class SharpClawSolver1D(SharpClawSolver):
                 dq[m,LL:UL] = -dtdx[LL:UL]*(amdq[m,LL:UL] + apdq[m,LL-1:UL-1] \
                                 + apdq2[m,LL:UL] + amdq2[m,LL:UL])
 
-        else: 
+        else:
             raise Exception('Unrecognized value of solver.kernel_language.')
 
         self.cfl.update_global_max(cfl)
         return dq[:,self.num_ghost:-self.num_ghost]
-    
+
 
 # ========================================================================
 class SharpClawSolver2D(SharpClawSolver):
@@ -831,16 +912,16 @@ class SharpClawSolver2D(SharpClawSolver):
     def __init__(self,riemann_solver=None,claw_package=None):
         r"""
         Create 2D SharpClaw solver
-        
+
         See :class:`SharpClawSolver2D` for more info.
-        """   
+        """
         self.num_dim = 2
         self.reflect_index = [1,2]
 
         super(SharpClawSolver2D,self).__init__(riemann_solver,claw_package)
 
 
-    def dq_hyperbolic(self,state):
+    def dq_hyperbolic(self,state,downwind):
         """Compute dq/dt * (delta t) for the hyperbolic hyperbolic system
 
         Note that the capa array, if present, should be located in the aux
@@ -851,11 +932,11 @@ class SharpClawSolver2D(SharpClawSolver):
          0     1     2     3     4     mx+num_ghost-2     mx+num_ghost      mx+num_ghost+2
                      |                        mx+num_ghost-1 |  mx+num_ghost+1
          |     |     |     |     |   ...   |     |     |     |     |
-            0     1  |  2     3            mx+num_ghost-2    |mx+num_ghost       
+            0     1  |  2     3            mx+num_ghost-2    |mx+num_ghost
                                                   mx+num_ghost-1   mx+num_ghost+1
 
         The top indices represent the values that are located on the grid
-        cell boundaries such as waves, s and other Riemann problem values, 
+        cell boundaries such as waves, s and other Riemann problem values,
         the bottom for the cell centered values such as q.  In particular
         the ith grid cell boundary has the following related information::
 
@@ -869,7 +950,7 @@ class SharpClawSolver2D(SharpClawSolver):
 
         """
         self._apply_bcs(state)
-        q = self.qbc 
+        q = self.qbc
 
         grid = state.grid
 
@@ -885,7 +966,7 @@ class SharpClawSolver2D(SharpClawSolver):
             else:
                 tfluct2 = self.tfluct
 
-            dq,cfl=self.fmod.flux2(q,self.auxbc,self.dt,state.t,num_ghost,maxm,mx,my,rpn2,tfluct2)
+            dq,cfl=self.fmod.flux2(q,self.auxbc,self.dt,state.t,num_ghost,maxm,mx,my,rpn2,tfluct2,downwind)
 
         else: raise Exception('Only Fortran kernels are supported in 2D.')
 
@@ -903,9 +984,9 @@ class SharpClawSolver3D(SharpClawSolver):
     def __init__(self,riemann_solver=None,claw_package=None):
         r"""
         Create 3D SharpClaw solver
-        
+
         See :class:`SharpClawSolver3D` for more info.
-        """   
+        """
         self.num_dim = 3
         self.reflect_index = [1,2,3]
 
@@ -924,7 +1005,7 @@ class SharpClawSolver3D(SharpClawSolver):
             del self.fmod
 
 
-    def dq_hyperbolic(self,state):
+    def dq_hyperbolic(self,state,downwind):
         """Compute dq/dt * (delta t) for the hyperbolic hyperbolic system
 
         Note that the capa array, if present, should be located in the aux
@@ -935,11 +1016,11 @@ class SharpClawSolver3D(SharpClawSolver):
          0     1     2     3     4     mx+num_ghost-2     mx+num_ghost      mx+num_ghost+2
                      |                        mx+num_ghost-1 |  mx+num_ghost+1
          |     |     |     |     |   ...   |     |     |     |     |
-            0     1  |  2     3            mx+num_ghost-2    |mx+num_ghost       
+            0     1  |  2     3            mx+num_ghost-2    |mx+num_ghost
                                                   mx+num_ghost-1   mx+num_ghost+1
 
         The top indices represent the values that are located on the grid
-        cell boundaries such as waves, s and other Riemann problem values, 
+        cell boundaries such as waves, s and other Riemann problem values,
         the bottom for the cell centered values such as q.  In particular
         the ith grid cell boundary has the following related information::
 
@@ -953,7 +1034,7 @@ class SharpClawSolver3D(SharpClawSolver):
 
         """
         self._apply_bcs(state)
-        q = self.qbc 
+        q = self.qbc
 
         grid = state.grid
 
@@ -965,12 +1046,12 @@ class SharpClawSolver3D(SharpClawSolver):
 
         if self.kernel_language=='Fortran':
             rpn3 = self.rp.rpn3._cpointer
-            if self.tfluct_solver:            
+            if self.tfluct_solver:
                 tfluct3 = self.tfluct.tfluct3._cpointer
             else:
                 tfluct3 = self.tfluct
 
-            dq,cfl=self.fmod.flux3(q,self.auxbc,self.dt,state.t,num_ghost,maxm,mx,my,mz,rpn3,tfluct3)
+            dq,cfl=self.fmod.flux3(q,self.auxbc,self.dt,state.t,num_ghost,maxm,mx,my,mz,rpn3,tfluct3,downwind)
 
         else: raise Exception('Only Fortran kernels are supported in 3D.')
 

@@ -4,14 +4,14 @@
 Shallow water flow on the sphere
 ================================
 
-2D shallow water equations on a spherical surface. The approximation of the 
-three-dimensional equations is restricted to the surface of the sphere. 
-Therefore only the solution on the surface is updated. 
+2D shallow water equations on a spherical surface. The approximation of the
+three-dimensional equations is restricted to the surface of the sphere.
+Therefore only the solution on the surface is updated.
 
-Reference: Logically Rectangular Grids and Finite Volume Methods for PDEs in 
-           Circular and Spherical Domains. 
+Reference: Logically Rectangular Grids and Finite Volume Methods for PDEs in
+           Circular and Spherical Domains.
            By Donna A. Calhoun, Christiane Helzel, and Randall J. LeVeque
-           SIAM Review 50 (2008), 723-752. 
+           SIAM Review 50 (2008), 723-752.
 """
 
 from __future__ import absolute_import
@@ -52,7 +52,7 @@ Rsphere = 1.0
 
 def fortran_src_wrapper(solver,state,dt):
     """
-    Wraps Fortran src2.f routine. 
+    Wraps Fortran src2.f routine.
     src2.f contains the discretization of the source term.
     """
     # Some simplifications
@@ -75,7 +75,7 @@ def fortran_src_wrapper(solver,state,dt):
 def mapc2p_sphere_nonvectorized(X,Y):
     """
     Maps to points on a sphere of radius Rsphere. Nonvectorized version (slow).
-    
+
     Inputs: x-coordinates, y-coordinates in the computational space.
 
     Output: list of x-, y- and z-coordinates in the physical space.
@@ -122,12 +122,12 @@ def mapc2p_sphere_nonvectorized(X,Y):
 
             xc1 = np.abs(xc)
             yc1 = np.abs(yc)
-            d = np.maximum(np.maximum(xc1,yc1), 1.0e-10)     
+            d = np.maximum(np.maximum(xc1,yc1), 1.0e-10)
 
             DD = Rsphere*d*(2.0 - d) / np.sqrt(2.0)
             R = Rsphere
             centers = DD - np.sqrt(np.maximum(R**2 - DD**2, 0.0))
-            
+
             xp = DD/d * xc1
             yp = DD/d * yc1
 
@@ -147,7 +147,7 @@ def mapc2p_sphere_nonvectorized(X,Y):
 
 def mapc2p_sphere_vectorized(X,Y):
     """
-    Maps to points on a sphere of radius Rsphere. Vectorized version (fast).  
+    Maps to points on a sphere of radius Rsphere. Vectorized version (fast).
 
     Inputs: x-coordinates, y-coordinates in the computational space.
 
@@ -158,7 +158,7 @@ def mapc2p_sphere_vectorized(X,Y):
 
     # Get number of cells in both directions
     mx, my = X.shape
-    
+
     # 2D array useful for the vectorization of the function
     sgnz = np.ones((mx,my))
 
@@ -192,14 +192,14 @@ def mapc2p_sphere_vectorized(X,Y):
     yp[ij] = centers[ij] + np.sqrt(R[ij]**2 - xp[ij]**2)
     ij = np.where(xc1==d)
     xp[ij] = centers[ij] + np.sqrt(R[ij]**2 - yp[ij]**2)
-    
+
     # Define new list of numpy array, pC = physical coordinates
     pC = []
 
     xp = np.sign(xc) * xp
     yp = np.sign(yc) * yp
     zp = sgnz * np.sqrt(Rsphere**2 - (xp**2 + yp**2))
-    
+
     pC.append(xp)
     pC.append(yp)
     pC.append(zp)
@@ -218,14 +218,14 @@ def qinit(state,mx,my):
     Omega = 7.292e-5  # Rotation rate
     G = 9.80616       # Gravitational acceleration
 
-    K = 7.848e-6   
-    t0 = 86400.0     
-    h0 = 8.e3         # Minimum fluid height at the poles        
+    K = 7.848e-6
+    t0 = 86400.0
+    h0 = 8.e3         # Minimum fluid height at the poles
     R = 4.0
 
     # Compute the the physical coordinates of the cells' centerss
     state.grid.compute_p_centers(recompute=True)
- 
+
     for i in range(mx):
         for j in range(my):
             xp = state.grid.p_centers[0][i][j]
@@ -235,7 +235,7 @@ def qinit(state,mx,my):
             rad = np.maximum(np.sqrt(xp**2 + yp**2),1.e-6)
 
             if (xp >= 0.0 and yp >= 0.0):
-                theta = np.arcsin(yp/rad) 
+                theta = np.arcsin(yp/rad)
             elif (xp <= 0.0 and yp >= 0.0):
                 theta = np.pi - np.arcsin(yp/rad)
             elif (xp <= 0.0 and yp <= 0.0):
@@ -244,13 +244,13 @@ def qinit(state,mx,my):
                 theta = -np.arcsin(-yp/rad)
 
             # Compute phi, at north pole: pi/2 at south pool: -pi/2
-            if (zp >= 0.0): 
-                phi =  np.arcsin(zp/Rsphere) 
+            if (zp >= 0.0):
+                phi =  np.arcsin(zp/Rsphere)
             else:
-                phi = -np.arcsin(-zp/Rsphere)  
-        
-            xp = theta 
-            yp = phi 
+                phi = -np.arcsin(-zp/Rsphere)
+
+            xp = theta
+            yp = phi
 
 
             bigA = 0.5*K*(2.0*Omega + K)*np.cos(yp)**2.0 + \
@@ -276,7 +276,7 @@ def qinit(state,mx,my):
 
             # Radial velocity component
             Uin[2] = 0.0 # The fluid does not enter in the sphere
-            
+
 
             # Calculate velocity vetor in cartesian coordinates
             # =================================================
@@ -290,14 +290,14 @@ def qinit(state,mx,my):
             # =========================
             state.q[0,i,j] =  h0/a + (a/G)*( bigA + bigB*np.cos(R*xp) + \
                               bigC*np.cos(2.0*R*xp))
-            state.q[1,i,j] = state.q[0,i,j]*Uout[0] 
-            state.q[2,i,j] = state.q[0,i,j]*Uout[1] 
-            state.q[3,i,j] = state.q[0,i,j]*Uout[2] 
+            state.q[1,i,j] = state.q[0,i,j]*Uout[0]
+            state.q[2,i,j] = state.q[0,i,j]*Uout[1]
+            state.q[3,i,j] = state.q[0,i,j]*Uout[2]
 
 
-def qbc_lower_y(state,dim,t,qbc,auxbc,num_ghost):
+def qbc_lower_y(solver,state,dim,t,qbc,auxbc,num_ghost):
     """
-    Impose periodic boundary condition to q at the bottom boundary for the 
+    Impose periodic boundary condition to q at the bottom boundary for the
     sphere. This function does not work in parallel.
     """
     for j in range(num_ghost):
@@ -305,7 +305,7 @@ def qbc_lower_y(state,dim,t,qbc,auxbc,num_ghost):
         qbc[:,:,j] = qbc1D[:,::-1]
 
 
-def qbc_upper_y(state,dim,t,qbc,auxbc,num_ghost):
+def qbc_upper_y(solver,state,dim,t,qbc,auxbc,num_ghost):
     """
     Impose periodic boundary condition to q at the top boundary for the sphere.
     This function does not work in parallel.
@@ -316,9 +316,9 @@ def qbc_upper_y(state,dim,t,qbc,auxbc,num_ghost):
         qbc[:,:,my+num_ghost+j] = qbc1D[:,::-1]
 
 
-def auxbc_lower_y(state,dim,t,qbc,auxbc,num_ghost):
+def auxbc_lower_y(solver,state,dim,t,qbc,auxbc,num_ghost):
     """
-    Impose periodic boundary condition to aux at the bottom boundary for the 
+    Impose periodic boundary condition to aux at the bottom boundary for the
     sphere.
     """
     grid=state.grid
@@ -334,10 +334,10 @@ def auxbc_lower_y(state,dim,t,qbc,auxbc,num_ghost):
     auxtemp = problem.setaux(mx,my,num_ghost,mx,my,xlower,ylower,dx,dy,auxtemp,Rsphere)
     auxbc[:,:,:num_ghost] = auxtemp[:,:,:num_ghost]
 
-def auxbc_upper_y(state,dim,t,qbc,auxbc,num_ghost):
+def auxbc_upper_y(solver,state,dim,t,qbc,auxbc,num_ghost):
     """
-    Impose periodic boundary condition to aux at the top boundary for the 
-    sphere. 
+    Impose periodic boundary condition to aux at the top boundary for the
+    sphere.
     """
     grid=state.grid
 
@@ -346,7 +346,7 @@ def auxbc_upper_y(state,dim,t,qbc,auxbc,num_ghost):
     mx, my = grid.num_cells[0], grid.num_cells[1]
     xlower, ylower = grid.lower[0], grid.lower[1]
     dx, dy = grid.delta[0],grid.delta[1]
-    
+
     # Impose BC
     auxtemp = auxbc.copy()
     auxtemp = problem.setaux(mx,my,num_ghost,mx,my,xlower,ylower,dx,dy,auxtemp,Rsphere)
@@ -386,12 +386,12 @@ def setup(use_petsc=False,solver_type='classic',outdir='./_output', disable_outp
     # Dimensional splitting ?
     # =======================
     solver.dimensional_split = 0
- 
-    # Transverse increment waves and transverse correction waves are computed 
+
+    # Transverse increment waves and transverse correction waves are computed
     # and propagated.
     # =======================================================================
     solver.transverse_waves = 2
-    
+
     # Use source splitting method
     # ===========================
     solver.source_split = 2
@@ -406,7 +406,7 @@ def setup(use_petsc=False,solver_type='classic',outdir='./_output', disable_outp
 
 
     #===========================================================================
-    # Initialize domain and state, then initialize the solution associated to the 
+    # Initialize domain and state, then initialize the solution associated to the
     # state and finally initialize aux array
     #===========================================================================
     # Domain:
@@ -418,8 +418,8 @@ def setup(use_petsc=False,solver_type='classic',outdir='./_output', disable_outp
     yupper = 1.0
     my = 20
 
-    # Check whether or not the even number of cells are used in in both 
-    # directions. If odd numbers are used a message is print at screen and the 
+    # Check whether or not the even number of cells are used in in both
+    # directions. If odd numbers are used a message is print at screen and the
     # simulation is interrputed.
     if(mx % 2 != 0 or my % 2 != 0):
         message = 'Please, use even numbers of cells in both direction. ' \
@@ -434,13 +434,13 @@ def setup(use_petsc=False,solver_type='classic',outdir='./_output', disable_outp
     dx = domain.grid.delta[0]
     dy = domain.grid.delta[1]
 
-    # Define some parameters used in Fortran common blocks 
+    # Define some parameters used in Fortran common blocks
     solver.fmod.comxyt.dxcom = dx
     solver.fmod.comxyt.dycom = dy
-    solver.fmod.sw.g = 11489.57219  
+    solver.fmod.sw.g = 11489.57219
     solver.rp.comxyt.dxcom = dx
     solver.rp.comxyt.dycom = dy
-    solver.rp.sw.g = 11489.57219  
+    solver.rp.sw.g = 11489.57219
 
     # Define state object
     # ===================
@@ -450,12 +450,12 @@ def setup(use_petsc=False,solver_type='classic',outdir='./_output', disable_outp
     # Override default mapc2p function
     # ================================
     state.grid.mapc2p = mapc2p_sphere_vectorized
-        
+
 
     # Set auxiliary variables
     # =======================
-    
-    # Get lower left corner coordinates 
+
+    # Get lower left corner coordinates
     xlower,ylower = state.grid.lower[0],state.grid.lower[1]
 
     num_ghost = 2
@@ -467,7 +467,7 @@ def setup(use_petsc=False,solver_type='classic',outdir='./_output', disable_outp
     state.index_capa = 0
 
     # Set initial conditions
-    # ====================== 
+    # ======================
     # 1) Call fortran function
     qtmp = np.ndarray(shape=(solver.num_eqn,mx+2*num_ghost,my+2*num_ghost), dtype=float, order='F')
     qtmp = problem.qinit(mx,my,num_ghost,mx,my,xlower,ylower,dx,dy,qtmp,auxtmp,Rsphere)
@@ -493,7 +493,7 @@ def setup(use_petsc=False,solver_type='classic',outdir='./_output', disable_outp
 
     return claw
 
-        
+
 if __name__=="__main__":
     from clawpack.pyclaw.util import run_app_from_main
     output = run_app_from_main(setup)
@@ -501,9 +501,9 @@ if __name__=="__main__":
 
 def plot_on_sphere():
     """
-    Plots the solution of the shallow water on a sphere in the 
+    Plots the solution of the shallow water on a sphere in the
     rectangular computational domain. The user can specify the name of the solution
-    file and its path. If these are not given, the script checks 
+    file and its path. If these are not given, the script checks
     whether the solution fort.q0000 in ./_output exists and plots it. If it it does
     not exist an error message is printed at screen.
     The file must be ascii and clawpack format.
@@ -524,11 +524,11 @@ def plot_on_sphere():
         """
         This function plots the contour lines on a spherical surface for the shallow
         water equations solved on a sphere.
-        """  
-     
+        """
+
         # Open file
         # =========
-        
+
         # Concatenate path and file name
         pathFileName = path + "/" + fileName
 
@@ -591,7 +591,7 @@ def plot_on_sphere():
         patch.compute_c_centers(recompute=True)
         xc = patch._c_centers[0]
         yc = patch._c_centers[1]
-        
+
         # Define arrays of conserved variables
         h = np.zeros((mx,my))
         hu = np.zeros((mx,my))
@@ -607,7 +607,7 @@ def plot_on_sphere():
             hv[:,j] = tmp[:,2]
             hw[:,j] = tmp[:,3]
 
-        
+
         # Plot solution in the computational domain
         # =========================================
 

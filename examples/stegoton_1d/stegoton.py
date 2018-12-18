@@ -10,8 +10,8 @@ Solve a one-dimensional nonlinear elasticity system:
     \epsilon_t + u_x & = 0 \\
     (\rho(x) u)_t + \sigma(\epsilon,x)_x & = 0.
 
-Here :math:`\epsilon` is the strain, :math:`\sigma` is the stress, 
-u is the velocity, and :math:`\rho(x)` is the density.  
+Here :math:`\epsilon` is the strain, :math:`\sigma` is the stress,
+u is the velocity, and :math:`\rho(x)` is the density.
 We take the stress-strain relation :math:`\sigma = e^{K(x)\epsilon}-1`;
 :math:`K(x)` is the linearized bulk modulus.
 Note that the density and bulk modulus may depend explicitly on x.
@@ -28,7 +28,7 @@ from six.moves import range
 
 def qinit(state,ic=2,a2=1.0,xupper=600.):
     x = state.grid.x.centers
-    
+
     if ic==1: #Zero ic
         state.q[:,:] = 0.
     elif ic==2:
@@ -48,7 +48,7 @@ def setaux(x,rhoB=4,KB=4,rhoA=1,KA=1,alpha=0.5,xlower=0.,xupper=600.,bc=2):
     aux[2,:] = 0. # not used
     return aux
 
-    
+
 def b4step(solver,state):
     #Reverse velocity at trtime
     #Note that trtime should be an output point
@@ -60,7 +60,7 @@ def b4step(solver,state):
         if state.t>state.problem_data['trtime']:
             print('WARNING: trtime is '+str(state.problem_data['trtime'])+\
                 ' but velocities reversed at time '+str(state.t))
-    #Change to periodic BCs after initial pulse 
+    #Change to periodic BCs after initial pulse
     if state.t>5*state.problem_data['tw1'] and solver.bc_lower[0]==0:
         solver.bc_lower[0]=2
         solver.bc_upper[0]=2
@@ -73,10 +73,10 @@ def zero_bc(state,dim,t,qbc,auxbc,num_ghost):
     if dim.on_upper_boundary:
         qbc[:,-num_ghost:]=0.
 
-def moving_wall_bc(state,dim,t,qbc,auxbc,num_ghost):
+def moving_wall_bc(solver,state,dim,t,qbc,auxbc,num_ghost):
     """Initial pulse generated at left boundary by prescribed motion"""
     if dim.on_lower_boundary:
-        qbc[0,:num_ghost]=qbc[0,num_ghost] 
+        qbc[0,:num_ghost]=qbc[0,num_ghost]
         t=state.t; t1=state.problem_data['t1']; tw1=state.problem_data['tw1']
         a1=state.problem_data['a1'];
         t0 = (t-t1)/tw1
@@ -148,8 +148,8 @@ def setup(use_petsc=0,kernel_language='Fortran',solver_type='classic',outdir='./
     tfinal=500.; num_output_times = 20;
 
     solver.max_steps = 5000000
-    solver.fwave = True 
-    solver.before_step = b4step 
+    solver.fwave = True
+    solver.before_step = b4step
     solver.user_bc_lower=moving_wall_bc
     solver.user_bc_upper=zero_bc
 
@@ -168,11 +168,11 @@ def setup(use_petsc=0,kernel_language='Fortran',solver_type='classic',outdir='./
 #--------------------------
 def setplot(plotdata):
 #--------------------------
-    """ 
+    """
     Specify what is to be plotted at each frame.
     Input:  plotdata, an instance of visclaw.data.ClawPlotData.
     Output: a modified version of plotdata.
-    """ 
+    """
     plotdata.clearfigures()  # clear any old figures,axes,items data
 
     # Figure for q[0]
@@ -187,7 +187,7 @@ def setplot(plotdata):
     plotitem = plotaxes.new_plotitem(plot_type='1d_plot')
     plotitem.plot_var = stress
     plotitem.kwargs = {'linewidth':2}
-    
+
     # Figure for q[1]
     plotfigure = plotdata.new_plotfigure(name='Velocity', figno=2)
 
@@ -201,10 +201,10 @@ def setplot(plotdata):
     plotitem = plotaxes.new_plotitem(plot_type='1d_plot')
     plotitem.plot_var = velocity
     plotitem.kwargs = {'linewidth':2}
-    
+
     return plotdata
 
- 
+
 def velocity(current_data):
     """Compute velocity from strain and momentum"""
     aux=setaux(current_data.x,rhoB=4,KB=4)
@@ -213,7 +213,7 @@ def velocity(current_data):
 
 def stress(current_data):
     """Compute stress from strain and momentum"""
-    from clawpack.riemann.nonlinear_elasticity_1D_py import sigma 
+    from clawpack.riemann.nonlinear_elasticity_1D_py import sigma
     aux=setaux(current_data.x)
     epsilon = current_data.q[0,:]
     stress = sigma(current_data.q,aux,{'stress_relation':'exponential'})

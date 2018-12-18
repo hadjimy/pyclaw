@@ -16,7 +16,7 @@ Here :math:`\rho` is the density, (u,v) is the velocity, and E is the total ener
 The radial coordinate is denoted by r.
 
 The problem involves a planar shock wave impacting a spherical low-density bubble.
-The problem is 3-dimensional but has been reduced to two dimensions using 
+The problem is 3-dimensional but has been reduced to two dimensions using
 cylindrical symmetry.
 
 This problem demonstrates:
@@ -59,7 +59,7 @@ def qinit(state,rhoin=0.1,pinf=5.):
     rinf = (gamma1 + pinf*(gamma+1.))/ ((gamma+1.) + gamma1*pinf)
     vinf = 1./np.sqrt(gamma) * (pinf - 1.) / np.sqrt(0.5*((gamma+1.)/gamma) * pinf+0.5*gamma1/gamma)
     einf = 0.5*rinf*vinf**2 + pinf/gamma1
-    
+
     X, Y = grid.p_centers
 
     r = np.sqrt((X-x0)**2 + (Y-y0)**2)
@@ -98,7 +98,7 @@ def auxinit(state):
         state.aux[0,:,j] = r
 
 
-def incoming_shock(state,dim,t,qbc,auxbc,num_ghost):
+def incoming_shock(solver,state,dim,t,qbc,auxbc,num_ghost):
     """
     Incoming shock at left boundary.
     """
@@ -233,15 +233,15 @@ def setup(use_petsc=False,solver_type='classic', outdir='_output', kernel_langua
 
     return claw
 
-    
+
 def setplot(plotdata):
-    """ 
+    """
     Plot solution using VisClaw.
-    """ 
+    """
     from clawpack.visclaw import colormaps
 
     plotdata.clearfigures()  # clear any old figures,axes,items data
-    
+
     # Pressure plot
     plotfigure = plotdata.new_plotfigure(name='Density', figno=0)
 
@@ -253,7 +253,7 @@ def setplot(plotdata):
     plotitem = plotaxes.new_plotitem(plot_type='2d_schlieren')
     plotitem.plot_var = 0
     plotitem.add_colorbar = False
-    
+
 
     # Tracer plot
     plotfigure = plotdata.new_plotfigure(name='Tracer', figno=1)
@@ -269,7 +269,7 @@ def setplot(plotdata):
     plotitem.plot_var = 4
     plotitem.pcolor_cmap = colormaps.yellow_red_blue
     plotitem.add_colorbar = False
-    
+
 
     # Energy plot
     plotfigure = plotdata.new_plotfigure(name='Energy', figno=2)
@@ -285,14 +285,14 @@ def setplot(plotdata):
     plotitem.plot_var = 3
     plotitem.pcolor_cmap = colormaps.yellow_red_blue
     plotitem.add_colorbar = False
-    
+
     return plotdata
 
 def label_axes(current_data):
     import matplotlib.pyplot as plt
     plt.xlabel('z')
     plt.ylabel('r')
-    
+
 
 if __name__=="__main__":
     from clawpack.pyclaw.util import run_app_from_main

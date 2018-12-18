@@ -60,12 +60,12 @@ def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_t
         solver.cfl_max = 0.7
         if use_char_decomp:
             try:
-                from . import sharpclaw1               # Import custom Fortran code
+                import sharpclaw1               # Import custom Fortran code
                 solver.fmod = sharpclaw1
                 solver.tfluct_solver = tfluct_solver     # Use total fluctuation solver for efficiency
                 if solver.tfluct_solver:
                     try:
-                        from . import euler_tfluct
+                        import euler_tfluct
                         solver.tfluct = euler_tfluct
                     except ImportError:
                         import logging
@@ -98,6 +98,9 @@ def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_t
 
     if kernel_language =='Python':
         state.problem_data['efix'] = False
+        state.problem_data['gamma1'] = gamma - 1.
+    else:
+        state.problem_data['gamma'] = gamma
 
     xc = state.grid.p_centers[0]
     epsilon = 0.2
@@ -122,11 +125,11 @@ def setup(use_petsc=False,iplot=False,htmlplot=False,outdir='./_output',solver_t
 #--------------------------
 def setplot(plotdata):
 #--------------------------
-    """ 
+    """
     Specify what is to be plotted at each frame.
     Input:  plotdata, an instance of visclaw.data.ClawPlotData.
     Output: a modified version of plotdata.
-    """ 
+    """
     plotdata.clearfigures()  # clear any old figures,axes,items data
 
     # Figure for density
@@ -140,7 +143,7 @@ def setplot(plotdata):
     plotitem = plotaxes.new_plotitem(plot_type='1d')
     plotitem.plot_var = density
     plotitem.kwargs = {'linewidth':3}
-    
+
     plotaxes = plotfigure.new_plotaxes()
     plotaxes.title = 'Energy'
     plotaxes.axescmd = 'subplot(212)'
@@ -149,7 +152,7 @@ def setplot(plotdata):
     plotitem.plot_var = energy
     plotitem.kwargs = {'linewidth':3}
     plotaxes.xlimits = (-5.,5.)
-    
+
     return plotdata
 
 if __name__=="__main__":

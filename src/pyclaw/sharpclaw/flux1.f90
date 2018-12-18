@@ -1,11 +1,11 @@
 ! ===================================================================
-subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,rp,tfluct)
+subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,rp,tfluct,downwind)
 ! ===================================================================
 !
 !     # Evaluate (delta t) * dq(t)/dt
 !
 !     The following variables, from the workspace module, are used locally:
-!     amdq, apdq, amdq2, apdq2, wave, s 
+!     amdq, apdq, amdq2, apdq2, wave, s
 !
 !     amdq(num_eqn,1-num_ghost:mx+num_ghost) = left-going flux-differences
 !     apdq(num_eqn,1-num_ghost:mx+num_ghost) = right-going flux-differences
@@ -43,13 +43,15 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
     double precision, target, intent(in) :: aux(num_aux,1-num_ghost:mx+num_ghost)
     double precision, intent(out) :: cfl
     double precision, intent(in) :: t, dt
+    logical, intent(in) :: downwind
 
-!f2py intent(in,out) dq1d  
-!f2py intent(out) cfl  
+!f2py intent(in,out) dq1d
+!f2py intent(out) cfl
 !f2py optional dq1d
 
     ! Local variables
     double precision, pointer :: auxl(:,:), auxr(:,:), qr_shift(:,:), ql_shift(:,:)
+    double precision, pointer :: p_amdq(:,:), p_apdq(:,:)
     integer :: m, mw, i
 
 ! ===================================================================
@@ -122,7 +124,7 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
       end select
 
 
-    ! solve Riemann problem at each interface 
+    ! solve Riemann problem at each interface
     ! -----------------------------------------
     if (num_dim.eq.1) then
         call rp(maxnx,num_eqn,num_waves,num_aux,num_ghost,mx,&
@@ -141,6 +143,14 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
             cfl = dmax1(cfl, dtdx(i)*s(mw,i), -dtdx(i-1)*s(mw,i))
         enddo
     enddo
+
+    p_amdq => amdq
+    p_apdq => apdq
+    if (downwind .eqv. .True.) then
+        ! swap pointers
+        p_apdq => amdq
+        p_amdq => apdq
+    endif
 
     ! Find total fluctuation within each cell
     if (tfluct_solver .eqv. .True.) then
@@ -163,20 +173,20 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
         ! adq = f(qr(i)) - f(ql(i)).
 
         forall (i=1:mx, m=1:num_eqn)
-            dq1d(m,i) = dq1d(m,i) - dtdx(i)*(apdq(m,i) + &
-                            amdq2(m,i) + amdq(m,i+1))
+            dq1d(m,i) = dq1d(m,i) - dtdx(i)*(p_apdq(m,i) + &
+                        amdq2(m,i) + p_amdq(m,i+1))
         end forall
 
     else
         ! Or we can just swap things around and use the usual Riemann solver
-        ! This may be more convenient, but is less efficient. 
-        
+        ! This may be more convenient, but is less efficient.
+
         qr_shift => ql(:,2-num_ghost:mx+num_ghost)
         ql_shift => qr
 
         auxr => aux(:,2-num_ghost:mx+num_ghost)
         auxl => aux
-        
+
         if (num_dim.eq.1) then
             call rp(maxnx,num_eqn,num_waves,num_aux,num_ghost,mx,&
                     ql_shift,qr_shift,auxl,auxr,wave,s,amdq2,apdq2)
@@ -186,9 +196,10 @@ subroutine flux1(q1d,dq1d,aux,dt,cfl,t,ixyz,num_aux,num_eqn,mx,num_ghost,maxnx,r
         endif
 
         forall(i=1:mx, m=1:num_eqn)
-            dq1d(m,i) = dq1d(m,i)-dtdx(i)*(amdq(m,i+1)+ &
-                        apdq(m,i)+amdq2(m,i)+apdq2(m,i))
+            dq1d(m,i) = dq1d(m,i)-dtdx(i)*(p_amdq(m,i+1) + &
+                        p_apdq(m,i) + amdq2(m,i) + apdq2(m,i))
         end forall
+
     endif
 
 end subroutine flux1

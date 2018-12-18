@@ -29,7 +29,7 @@ def bathymetry(x,y):
     r2 = (x-1.)**2 + (y-0.5)**2
     return 0.8*np.exp(-10*r2)
 
-def wave_maker_bc(state,dim,t,qbc,auxbc,num_ghost):
+def wave_maker_bc(solver,state,dim,t,qbc,auxbc,num_ghost):
     "Generate waves at left boundary as if there were a moving wall there."
     if dim.on_lower_boundary:
         qbc[0,:num_ghost,:]=qbc[0,num_ghost,:]
